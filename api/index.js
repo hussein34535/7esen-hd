@@ -449,7 +449,7 @@ function sameServerNext() {
       return;
     }
   }
-  showHint('السيرفر ده فيه مشكلة — اختار سيرفر تاني يدوي من فوق');
+  showHint('الروابط الحالية فيها مشكلة — جرّب جودة تانية من القائمة');
 }
 
 function tryResume() {
@@ -866,11 +866,35 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
+const MERGE_ORDER = ["auto", "1080", "720", "480", "360"];
+
+function mergeServers(servers) {
+  const byTag = new Map();
+  for (const sv of servers) {
+    for (const l of sv.links) {
+      const tag = l.tag || "auto";
+      if (!byTag.has(tag)) byTag.set(tag, l);
+    }
+  }
+  const links = MERGE_ORDER
+    .filter((t) => byTag.has(t))
+    .map((t) => byTag.get(t))
+    .concat(
+      [...byTag.entries()]
+        .filter(([t]) => !MERGE_ORDER.includes(t))
+        .sort((a, b) => (LINK_ORDER[a[0]] ?? 9) - (LINK_ORDER[b[0]] ?? 9))
+        .map(([, l]) => l)
+    );
+  if (!links.length) return null;
+  return { host: "merged", name: "جميع السيرفرات", links };
+}
+
 async function linksHandler(movieId, title) {
   const cached = cache.get(movieId);
   if (cached && Date.now() - cached.ts < CACHE_MS && cached.servers.length) return cached;
   const got = await getMovieLinks(movieId, title);
-  const box = { ts: Date.now(), servers: got.servers, errs: got.errs || [] };
+  const merged = mergeServers(got.servers);
+  const box = { ts: Date.now(), servers: merged ? [merged] : [], errs: got.errs || [] };
   cache.set(movieId, box);
   return box;
 }

@@ -226,6 +226,7 @@ const tdur = document.getElementById('tdur');
 const qcur = document.getElementById('qcur');
 
 function fmt(s) { if (!isFinite(s)) return '0:00'; s = Math.floor(s); const m = Math.floor(s/60), sec = s%60; return m + ':' + String(sec).padStart(2,'0'); }
+function showSpin(on) { spin.style.display = on ? 'block' : 'none'; }
 function showHint(t) { hint.textContent = t; hint.classList.add('show'); clearTimeout(showHint._t); showHint._t = setTimeout(() => hint.classList.remove('show'), 1600); }
 function showControls() {
   ctr.classList.add('visible'); big.classList.add('hidden');

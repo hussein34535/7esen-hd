@@ -19,6 +19,8 @@ const HEADERS = { "User-Agent": UA, "Accept-Language": "ar,en;q=0.9" };
 const CDN_HEADERS = { ...HEADERS, Referer: SITE + "/", Origin: SITE };
 
 const app = express();
+
+process.on("unhandledRejection", (e) => { if (process.env.EXTRACT_DEBUG) console.log("[sandbox] ignored rejection:", e && e.message); }); // scrape sandbox: async ad scripts may reject; must not crash the server
 const cache = new Map();
 const rl = new Map();
 const tokCache = new Map();
@@ -268,6 +270,7 @@ const VID = {{vidJson}};
 const INIT = {{init}};
 let DATA = null, hls = null, curLink = null, hideTimer = null;
 let resumeAt = 0, autoplayNext = false, resumeDone = false, switching = false, scrubbing = false;
+let curSrvIdx = 0, hasPlayed = false;
 const failed = new Set();
 const video = document.getElementById('player');
 const box = document.getElementById('box');
@@ -399,6 +402,7 @@ function setServer(i) {
 }
 
 function loadLink(i, l, auto) {
+  curSrvIdx = i;
   if (auto !== true) failed.delete(DATA.servers[i].name + '|' + l.url);
   curLink = l;
   qmenu.querySelectorAll('.mi').forEach(m => m.classList.toggle('active', m.dataset.u === l.url));
@@ -424,7 +428,7 @@ function nextTry() {
       const k = s.name + '|' + l.url;
       if (!failed.has(k)) {
         failed.add(k);
-        showHint('بنحاول سيرفر/رابط تاني...');
+        showHint('بنحاول سيرفر تاني قبل التشغيل...');
         loadLink(DATA.servers.indexOf(s), l, true);
         return;
       }
@@ -432,6 +436,20 @@ function nextTry() {
   }
   err.style.display = 'block';
   err.textContent = 'كل الروابط فشلت مؤقتًا، جرب فيلم تاني';
+}
+
+function sameServerNext() {
+  const sv = DATA.servers[curSrvIdx];
+  for (const l of sv.links) {
+    const k = sv.name + '|' + l.url;
+    if (!failed.has(k) && l !== curLink) {
+      failed.add(k);
+      showHint('بنحاول رابط تاني من نفس السيرفر...');
+      loadLink(curSrvIdx, l, true);
+      return;
+    }
+  }
+  showHint('السيرفر ده فيه مشكلة — اختار سيرفر تاني يدوي من فوق');
 }
 
 function tryResume() {
@@ -465,8 +483,14 @@ function load(src) {
       if (!data.fatal) return;
       if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
         hls._f = (hls._f || 0) + 1;
-        if (hls._f >= 2) { hls._f = 0; nextTry(); }
-        else { showSpin(true); hls.startLoad(); }
+        if (hls._f >= 3) {
+          hls._f = 0;
+          if (hasPlayed) sameServerNext();
+          else nextTry();
+        } else {
+          showSpin(true);
+          hls.startLoad();
+        }
       } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
         hls.recoverMediaError();
       }
@@ -499,7 +523,7 @@ box.addEventListener('click', (e) => {
 });
 box.addEventListener('dblclick', () => { fullscreen(); });
 
-video.addEventListener('playing', () => { showSpin(false); showControls(); });
+video.addEventListener('playing', () => { hasPlayed = true; showSpin(false); showControls(); });
 video.addEventListener('waiting', () => { if (!video.paused) showSpin(true); });
 video.addEventListener('pause', () => { if (!switching) showBig(); });
 video.addEventListener('play', () => { showBig(); showControls(); });
@@ -756,14 +780,22 @@ async function extractFromServer(base, id) {
     detailCache.set(dk, { ts: Date.now(), videos });
   }
   if (!videos.length) return null;
-  const res = await pMap(videos.slice(0, 14), (v) => extractFromEmbed(v.link, v), 6);
+  const res = await pMap(videos.slice(0, 26), (v) => extractFromEmbed(v.link, v), 8);
   const dedup = new Map();
   for (const r of res) {
     if (r.ok && r.v && !dedup.has(r.v.embed)) dedup.set(r.v.embed, r.v);
   }
-  const entries = [...dedup.values()]
-    .sort((a, b) => (LINK_ORDER[(b.headers && b.headers._tag) || "auto"] ?? 9) - (LINK_ORDER[(a.headers && a.headers._tag) || "auto"] ?? 9))
-    .slice(0, 6);
+  const sorted = [...dedup.values()]
+    .sort((a, b) => (LINK_ORDER[(b.headers && b.headers._tag) || "auto"] ?? 9) - (LINK_ORDER[(a.headers && a.headers._tag) || "auto"] ?? 9));
+  const entries = [];
+  const seen = new Set();
+  for (const e of sorted) {
+    const label = e.label || "تلقائي";
+    if (seen.has(label)) continue;
+    seen.add(label);
+    entries.push(e);
+    if (entries.length >= 6) break;
+  }
   if (!entries.length) return null;
   return {
     host: serverKey(base),

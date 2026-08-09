@@ -459,9 +459,11 @@ async function siteSearch(q) {
   return links;
 }
 
+function stripLang(h) { const x = { ...h }; delete x["Accept-Language"]; return x; }
+
 async function verifyM3u8(url, extra) {
   try {
-    const r = await fetch(url, { headers: { ...CDN_HEADERS, ...(extra || {}) }, signal: AbortSignal.timeout(15000) });
+    const r = await fetch(url, { headers: stripLang({ ...CDN_HEADERS, ...(extra || {}) }), signal: AbortSignal.timeout(15000) });
     const buf = Buffer.from(await r.arrayBuffer());
     return r.ok && buf.subarray(0, 7).toString() === "#EXTM3U";
   } catch {
@@ -504,7 +506,7 @@ async function resolveEmbed(pageUrl, opts) {
   const ua = (opts && opts.ua) || UA;
   const ref = (opts && opts.referer) || new URL(pageUrl).origin + "/";
   const r = await fetch(pageUrl, {
-    headers: { "User-Agent": ua, Referer: ref, "Accept-Language": "ar,en;q=0.9" },
+    headers: { "User-Agent": ua, Referer: ref },
     signal: AbortSignal.timeout(20000),
   });
   if (!r.ok) throw new Error("embed " + r.status);
@@ -625,39 +627,41 @@ app.get("/s/:token", async (req, res) => {
   const full = resolveTokenFull(req.params.token);
   if (!full) return res.status(404).end();
   const { url, headers } = full;
-  const hdrs = { ...(headers || CDN_HEADERS) };
+  const hdrs = stripLang(headers || CDN_HEADERS);
   delete hdrs._embed;
   delete hdrs._tag;
-  let target = url;
+  let candidates = [url];
   if (headers && headers._embed) {
     try {
-      const { urls, cookies } = await resolveEmbed(target, { ua: hdrs["User-Agent"] });
+      const { urls, cookies } = await resolveEmbed(url, { ua: hdrs["User-Agent"] });
       if (cookies) hdrs.Cookie = cookies;
-      let ok = false;
-      for (const u of urls) {
-        if (await verifyM3u8(u, hdrs)) { target = u; ok = true; break; }
-      }
-      if (!ok) return res.status(502).end();
+      hdrs.Referer = url;
+      candidates = urls.length ? urls : [url];
     } catch {
       return res.status(502).end();
     }
   }
-  let r;
-  try {
-    r = await fetch(target, { headers: hdrs, signal: AbortSignal.timeout(30000) });
-  } catch {
-    return res.status(502).end();
+  let r = null;
+  for (const u of candidates) {
+    try {
+      const rr = await fetch(u, { headers: hdrs, signal: AbortSignal.timeout(30000) });
+      if (!rr.ok) continue;
+      r = rr;
+      break;
+    } catch {
+      continue;
+    }
   }
-  if (!r.ok) return res.status(r.status).end();
+  if (!r) return res.status(502).end();
   const body = Buffer.from(await r.arrayBuffer());
   const ct = r.headers.get("content-type") || "";
 
-  const isPlaylist = body.subarray(0, 7).toString() === "#EXTM3U" || target.includes("m3u8") || ct.includes("mpegurl") || ct.includes("playlist");
+  const isPlaylist = body.subarray(0, 7).toString() === "#EXTM3U" || String(r.url).includes("m3u8") || ct.includes("mpegurl") || ct.includes("playlist");
   if (isPlaylist) {
     const text = body.toString("utf8");
     const lines = text.split(/\r?\n/).map((line) => {
       if (line.startsWith("#") || !line.trim()) return line;
-      const seg = new URL(line.trim(), target).toString();
+      const seg = new URL(line.trim(), r.url).toString();
       return "/s/" + makeToken(seg, hdrs);
     });
     res.set("Content-Type", "application/vnd.apple.mpegurl");
@@ -666,7 +670,7 @@ app.get("/s/:token", async (req, res) => {
     return res.send(lines.join("\n"));
   }
 
-  res.set("Content-Type", target.includes(".ts") ? "video/mp2t" : ct || "application/octet-stream");
+  res.set("Content-Type", String(r.url).includes(".ts") ? "video/mp2t" : ct || "application/octet-stream");
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Cache-Control", "no-cache");
   res.send(body);

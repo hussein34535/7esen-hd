@@ -139,22 +139,26 @@ const WATCH_HTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{title}} | 7esen HD</title>
 <style>
-:root { --bg:#0b0d12; --card:#141823; --border:#232a3a; --text:#e8ecf4; --dim:#8b93a7; --accent:#ff434c; }
+:root { --bg:#0b0d12; --card:#141823; --border:#232a3a; --text:#e8ecf4; --dim:#8b93a7; --accent:#ff434c; --accent2:#6c5ce7; }
 * { box-sizing:border-box; margin:0; padding:0; }
-body { background:var(--bg); color:var(--text); font-family:'Segoe UI',Tahoma,sans-serif; }
+body { background:var(--bg); color:var(--text); font-family:'Segoe UI',Tahoma,sans-serif; min-height:100vh; }
 .top { display:flex; align-items:center; gap:14px; padding:16px 22px; border-bottom:1px solid var(--border); }
 .top a { color:var(--accent); text-decoration:none; font-size:15px; font-weight:bold; }
 .top h1 { font-size:18px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
-.player-box { border-radius:14px; overflow:hidden; border:1px solid var(--border); background:#000; }
+.player-box { border-radius:14px; overflow:hidden; border:1px solid var(--border); background:#000; position:relative; }
 video { width:100%; aspect-ratio:16/9; display:block; background:#000; outline:none; }
-.quals { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
-.qual { padding:10px 22px; border-radius:10px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; font-size:14px; font-weight:bold; }
-.qual.active { background:var(--accent); border-color:var(--accent); color:#fff; }
-.links { margin-top:18px; }
-.links summary { cursor:pointer; color:var(--dim); font-size:13px; margin-bottom:8px; }
-.links code { display:block; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin:6px 0; font-size:11px; direction:ltr; text-align:left; word-break:break-all; color:var(--dim); }
+.ctrl { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:14px 18px; background:var(--card); border:1px solid var(--border); border-top:none; border-radius:0 0 14px 14px; }
+.btn { padding:8px 16px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; font-size:13px; font-weight:bold; }
+.btn:hover { border-color:var(--accent); }
+.btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+.sep { flex:1; }
+.qinfo { font-size:12px; color:var(--dim); padding:0 4px; }
+.group { display:flex; align-items:center; gap:6px; }
+.glabel { font-size:12px; color:var(--dim); }
 #err { display:none; text-align:center; color:var(--accent); padding:40px 0; font-size:16px; }
+.spin { width:54px; height:54px; border:4px solid var(--border); border-top-color:var(--accent); border-radius:50%; position:absolute; top:50%; left:50%; margin:-27px 0 0 -27px; animation:rot .9s linear infinite; display:none; }
+@keyframes rot { to { transform:rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -164,64 +168,112 @@ video { width:100%; aspect-ratio:16/9; display:block; background:#000; outline:n
 </div>
 <div class="wrap">
   <div id="err">مفيش روابط شغالة</div>
-  <div class="player-box"><video id="player" controls></video></div>
-  <div class="quals" id="quals"></div>
-  <details class="links"><summary>عرض كل الروابط</summary><div id="alllinks"></div></details>
+  <div class="player-box">
+    <video id="player" controls playsinline></video>
+    <div class="spin" id="spin"></div>
+  </div>
+  <div class="ctrl">
+    <div class="group">
+      <span class="glabel">الجودة:</span>
+      <div class="group" id="quals"></div>
+    </div>
+    <div class="group">
+      <span class="glabel">السرعة:</span>
+      <button class="btn" data-speed="0.5">0.5x</button>
+      <button class="btn active" data-speed="1">1x</button>
+      <button class="btn" data-speed="1.5">1.5x</button>
+      <button class="btn" data-speed="2">2x</button>
+    </div>
+    <div class="sep"></div>
+    <span class="qinfo" id="qinfo"></span>
+    <button class="btn" id="pip">PiP</button>
+    <button class="btn" id="full">⛶ ملء الشاشة</button>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <script>
 const links = {{links}};
 let hls = null;
+let currentTag = null;
 const video = document.getElementById('player');
 const err = document.getElementById('err');
-const all = document.getElementById('alllinks');
+const spin = document.getElementById('spin');
+const qinfo = document.getElementById('qinfo');
 
-for (const l of links) {
-  const c = document.createElement('code');
-  c.textContent = l.url;
-  all.appendChild(c);
-}
+function showSpin(on) { spin.style.display = on ? 'block' : 'none'; }
 
 function load(src) {
+  showSpin(true);
   if (hls) { hls.destroy(); hls = null; }
   if (Hls.isSupported()) {
-    hls = new Hls({ enableWorker: true, maxBufferLength: 30 });
+    hls = new Hls({ enableWorker: true, maxBufferLength: 30, maxMaxBufferLength: 60, startLevel: -1 });
     hls.loadSource(src);
     hls.attachMedia(video);
     hls.on(Hls.Events.ERROR, (evt, data) => {
       if (data.fatal) {
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          hls.startLoad();
+          showSpin(true); hls.startLoad();
         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
           hls.recoverMediaError();
         }
       }
     });
+    hls.on(Hls.Events.LEVEL_SWITCHED, (e, d) => {
+      const lv = hls.levels[d.level];
+      if (lv) qinfo.textContent = 'الجودة الحالية: ' + (lv.height ? lv.height + 'p' : 'auto') + (currentTag ? ' (' + currentTag + ')' : '');
+    });
+    hls.on(Hls.Events.MANIFEST_PARSED, () => showSpin(false));
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
     video.src = src;
+    showSpin(false);
   } else {
     err.style.display = 'block';
     err.textContent = 'المتصفح لا يدعم HLS';
+    showSpin(false);
   }
   video.play().catch(() => {});
 }
 
+video.addEventListener('waiting', () => showSpin(true));
+video.addEventListener('playing', () => showSpin(false));
+video.addEventListener('canplay', () => showSpin(false));
+video.addEventListener('error', () => showSpin(false));
+
 const qs = document.getElementById('quals');
 for (const l of links) {
   const b = document.createElement('button');
-  b.className = 'qual';
+  b.className = 'btn';
   b.dataset.q = l.tag;
   b.textContent = l.label;
   b.addEventListener('click', () => {
-    document.querySelectorAll('.qual').forEach(q => q.classList.toggle('active', q.dataset.q === l.tag));
+    currentTag = l.tag;
+    document.querySelectorAll('#quals .btn').forEach(q => q.classList.toggle('active', q.dataset.q === l.tag));
     load(l.url);
   });
   qs.appendChild(b);
 }
 
+document.querySelectorAll('[data-speed]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-speed]').forEach(x => x.classList.toggle('active', x === b));
+    video.playbackRate = parseFloat(b.dataset.speed);
+  });
+});
+
+document.getElementById('pip').addEventListener('click', async () => {
+  try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); } catch (e) {}
+});
+
+document.getElementById('full').addEventListener('click', () => {
+  const box = document.querySelector('.player-box');
+  if (document.fullscreenElement) document.exitFullscreen();
+  else box.requestFullscreen().catch(() => {});
+});
+
 const first = links.find(x => x.tag === 'master') || links[0];
-document.querySelectorAll('.qual').forEach(q => q.classList.toggle('active', q.dataset.q === first.tag));
+document.querySelectorAll('#quals .btn').forEach(q => q.classList.toggle('active', q.dataset.q === first.tag));
+currentTag = first.tag;
 load(first.url);
 </script>
 </body>

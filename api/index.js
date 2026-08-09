@@ -22,7 +22,9 @@ const app = express();
 const cache = new Map();
 const rl = new Map();
 const tokCache = new Map();
+const detailCache = new Map();
 const CACHE_MS = 1800 * 1000;
+const DETAIL_MS = 15 * 60 * 1000;
 const RATE_MAX = 5;
 
 const INDEX_HTML = `<!DOCTYPE html>
@@ -165,6 +167,20 @@ body { background:var(--bg); color:var(--text); font-family:'Segoe UI',Tahoma,sa
 .player-box { border-radius:14px; overflow:hidden; border:1px solid var(--border); background:#000; position:relative; aspect-ratio:16/9; cursor:pointer; }
 video { width:100%; height:100%; display:block; background:#000; outline:none; }
 
+.srvbar, .qbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.srvbar { margin-top:4px; }
+.srvbar .lbl, .qbar .lbl { align-self:center; color:var(--dim); font-size:12px; margin-left:4px; }
+.chip { padding:8px 14px; border-radius:999px; border:1px solid var(--border); background:var(--card); color:var(--text); font-size:13px; cursor:pointer; transition:border-color .15s, background .15s; }
+.chip small { color:var(--dim); margin-right:4px; }
+.chip:hover { border-color:var(--accent2); }
+.chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+.chip.active small { color:#ffd9db; }
+.chip:disabled { opacity:.45; cursor:default; }
+.now { font-size:13px; color:var(--dim); margin-bottom:10px; }
+.now b { color:var(--accent2); }
+.load { display:flex; flex-direction:column; align-items:center; gap:14px; padding:70px 0; color:var(--dim); }
+.load .ld { width:42px; height:42px; border:4px solid rgba(255,255,255,.15); border-top-color:var(--accent); border-radius:50%; animation:rot .9s linear infinite; }
+
 .center-play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:80px; height:80px; border-radius:50%; border:none; background:rgba(255,67,76,.92); color:#fff; font-size:30px; cursor:pointer; z-index:5; transition:transform .15s, opacity .2s; box-shadow:0 8px 30px rgba(255,67,76,.4); }
 .center-play:hover { transform:translate(-50%,-50%) scale(1.08); }
 .center-play.hidden { opacity:0; pointer-events:none; }
@@ -198,37 +214,45 @@ video { width:100%; height:100%; display:block; background:#000; outline:none; }
   <h1>{{title}}</h1>
 </div>
 <div class="wrap">
+  <div class="load" id="load">
+    <div class="ld"></div>
+    <div id="loadmsg">جاري تجهيز الروابط من كل السيرفرات، لحظة واحدة...</div>
+  </div>
   <div id="err">مفيش روابط شغالة</div>
-  <div class="player-box" id="box">
-    <video id="player" playsinline preload="metadata"></video>
-    <button class="center-play" id="bigplay">▶</button>
-    <div class="spin" id="spin"></div>
-    <div class="hint" id="hint"></div>
-    <div class="controls" id="controls">
-      <button class="ic" id="play">▶</button>
-      <input type="range" id="bar" min="0" max="100" value="0" step="0.1">
-      <span class="time" id="tcur">0:00</span>
-      <span class="time">/</span>
-      <span class="time" id="tdur">0:00</span>
-      <span class="ic" id="qcur"></span>
-      <div class="menu-wrap" id="qwrap">
-        <button class="ic" id="qbtn" title="الجودة">⛭</button>
-        <div class="menu" id="qmenu"></div>
+  <div style="display:none" id="stage">
+    <div class="srvbar" id="srvbar"><span class="lbl">السيرفرات:</span></div>
+    <div class="qbar" id="qbar"><span class="lbl">الجودة:</span></div>
+    <div class="now" id="now"></div>
+    <div class="player-box" id="box">
+      <video id="player" playsinline preload="metadata"></video>
+      <button class="center-play" id="bigplay">▶</button>
+      <div class="spin" id="spin"></div>
+      <div class="hint" id="hint"></div>
+      <div class="controls" id="controls">
+        <button class="ic" id="play">▶</button>
+        <input type="range" id="bar" min="0" max="100" value="0" step="0.1">
+        <span class="time" id="tcur">0:00</span>
+        <span class="time">/</span>
+        <span class="time" id="tdur">0:00</span>
+        <span class="ic" id="qcur"></span>
+        <div class="menu-wrap" id="swrap">
+          <button class="ic" id="sbtn" title="السرعة">▶▶</button>
+          <div class="menu" id="smenu"></div>
+        </div>
+        <button class="ic" id="pip" title="نافذة صغيرة">▣</button>
+        <button class="ic" id="full" title="ملء الشاشة">⛶</button>
       </div>
-      <div class="menu-wrap" id="swrap">
-        <button class="ic" id="sbtn" title="السرعة">▶▶</button>
-        <div class="menu" id="smenu"></div>
-      </div>
-      <button class="ic" id="pip" title="نافذة صغيرة">▣</button>
-      <button class="ic" id="full" title="ملء الشاشة">⛶</button>
     </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <script>
-const links = {{links}};
-let hls = null, curTag = null, hideTimer = null, pausedByUser = true;
+const TITLE = {{titleJson}};
+const VID = {{vidJson}};
+const INIT = {{init}};
+let DATA = null, hls = null, curLink = null, hideTimer = null, pausedByUser = true;
+const failed = new Set();
 const video = document.getElementById('player');
 const box = document.getElementById('box');
 const err = document.getElementById('err');
@@ -240,7 +264,13 @@ const bar = document.getElementById('bar');
 const tcur = document.getElementById('tcur');
 const tdur = document.getElementById('tdur');
 const qcur = document.getElementById('qcur');
+const srvbar = document.getElementById('srvbar');
+const qbar = document.getElementById('qbar');
+const nowEl = document.getElementById('now');
+const loadBox = document.getElementById('load');
+const stage = document.getElementById('stage');
 
+function esc(s){ return String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmt(s) { if (!isFinite(s)) return '0:00'; s = Math.floor(s); const m = Math.floor(s/60), sec = s%60; return m + ':' + String(sec).padStart(2,'0'); }
 function showSpin(on) { spin.style.display = on ? 'block' : 'none'; }
 function showHint(t) { hint.textContent = t; hint.classList.add('show'); clearTimeout(showHint._t); showHint._t = setTimeout(() => hint.classList.remove('show'), 1600); }
@@ -254,19 +284,106 @@ function showBig() {
   else big.classList.add('hidden');
 }
 
-function toggleMenu(menu, btn) {
-  document.querySelectorAll('.menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
-  menu.classList.toggle('open');
-}
 document.querySelectorAll('.menu-wrap').forEach(w => {
   w.querySelector('.ic').addEventListener('click', (e) => {
     e.stopPropagation();
-    toggleMenu(w.querySelector('.menu'));
+    const menu = w.querySelector('.menu');
+    document.querySelectorAll('.menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+    menu.classList.toggle('open');
   });
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.menu-wrap')) document.querySelectorAll('.menu.open').forEach(m => m.classList.remove('open'));
 });
+
+function showLoad(on, msg) {
+  loadBox.style.display = on ? 'flex' : 'none';
+  if (msg) loadBox.querySelector('#loadmsg').textContent = msg;
+}
+
+function boot() {
+  if (INIT && INIT.length) {
+    DATA = { servers: INIT };
+    showLoad(false);
+    render();
+    return;
+  }
+  showLoad(true);
+  const u = '/api/watch?id=' + encodeURIComponent(VID) + '&title=' + encodeURIComponent(TITLE);
+  (function tryFetch(tries) {
+    fetch(u)
+      .then(r => r.json())
+      .then(j => {
+        if (j.error) throw new Error(j.error);
+        DATA = j;
+        if (!DATA.servers || !DATA.servers.length) throw new Error('مفيش روابط من أي سيرفر');
+        showLoad(false);
+        render();
+      })
+      .catch(e => {
+        if (tries < 3 && String(e.message).indexOf('كثيرة') > -1) {
+          setTimeout(() => tryFetch(tries + 1), 2500);
+          return;
+        }
+        showLoad(false);
+        err.style.display = 'block';
+        err.textContent = 'مفيش روابط شغالة: ' + String(e.message || e);
+      });
+  })(0);
+}
+
+function render() {
+  srvbar.innerHTML = '<span class="lbl">السيرفرات:</span>';
+  DATA.servers.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.className = 'chip srv';
+    b.dataset.i = i;
+    b.innerHTML = esc(s.name) + ' <small>' + s.links.length + '</small>';
+    b.addEventListener('click', () => setServer(i));
+    srvbar.appendChild(b);
+  });
+  stage.style.display = 'block';
+  setServer(0);
+}
+
+function setServer(i) {
+  srvbar.querySelectorAll('.srv').forEach(c => c.classList.toggle('active', Number(c.dataset.i) === i));
+  qbar.innerHTML = '<span class="lbl">الجودة:</span>';
+  const sv = DATA.servers[i];
+  sv.links.forEach(l => {
+    const b = document.createElement('button');
+    b.className = 'chip q';
+    b.dataset.u = l.url;
+    b.textContent = l.label;
+    b.addEventListener('click', () => loadLink(i, l));
+    qbar.appendChild(b);
+  });
+  const first = sv.links.find(l => l.tag === 'master' || l.tag === 'auto') || sv.links[0];
+  loadLink(i, first);
+}
+
+function loadLink(i, l) {
+  curLink = l;
+  qbar.querySelectorAll('.q').forEach(c => c.classList.toggle('active', c.dataset.u === l.url));
+  nowEl.innerHTML = 'السيرفر: <b>' + esc(DATA.servers[i].name) + '</b> — الجودة: ' + esc(l.label);
+  load(l.url);
+}
+
+function nextTry() {
+  for (const s of DATA.servers) {
+    for (const l of s.links) {
+      const k = s.name + '|' + l.url;
+      if (!failed.has(k)) {
+        failed.add(k);
+        showHint('بنحاول سيرفر/رابط تاني...');
+        loadLink(DATA.servers.indexOf(s), l);
+        return;
+      }
+    }
+  }
+  err.style.display = 'block';
+  err.textContent = 'كل الروابط فشلت مؤقتًا، جرب فيلم تاني';
+}
 
 function load(src) {
   showSpin(true);
@@ -281,19 +398,20 @@ function load(src) {
     hls.loadSource(src);
     hls.attachMedia(video);
     hls.on(Hls.Events.ERROR, (evt, data) => {
-      if (data.fatal) {
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { showSpin(true); hls.startLoad(); }
-        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+      if (!data.fatal) return;
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        hls._f = (hls._f || 0) + 1;
+        if (hls._f >= 2) { hls._f = 0; nextTry(); }
+        else { showSpin(true); hls.startLoad(); }
+      } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        hls.recoverMediaError();
       }
     });
     hls.on(Hls.Events.LEVEL_SWITCHED, (e, d) => {
       const lv = hls.levels[d.level];
       if (lv && lv.height) qcur.textContent = lv.height + 'p';
     });
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      showSpin(false);
-      tdur.textContent = fmt(hls.levels[hls.currentLevel] ? hls.levels[hls.currentLevel].details ? hls.levels[hls.currentLevel].details.totalduration : 0 : 0);
-    });
+    hls.on(Hls.Events.MANIFEST_PARSED, () => showSpin(false));
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
     video.src = src; showSpin(false);
   } else {
@@ -332,26 +450,6 @@ bar.addEventListener('input', () => {
   if (video.duration) video.currentTime = (bar.value / 100) * video.duration;
 });
 
-const qmenu = document.getElementById('qmenu');
-for (const l of links) {
-  const b = document.createElement('button');
-  b.className = 'mi';
-  b.dataset.q = l.tag;
-  b.innerHTML = l.label + '<span class="chk"></span>';
-  b.addEventListener('click', () => {
-    curTag = l.tag;
-    qmenu.querySelectorAll('.mi').forEach(m => m.classList.toggle('active', m.dataset.q === l.tag));
-    document.querySelectorAll('#qmenu .chk').forEach(c => c.textContent = '');
-    b.querySelector('.chk').textContent = '✓';
-    qmenu.classList.remove('open');
-    showHint('جودة: ' + l.label);
-    load(l.url);
-  });
-  qmenu.appendChild(b);
-}
-qmenu.firstChild && qmenu.firstChild.classList.add('active');
-qmenu.firstChild && (qmenu.firstChild.querySelector('.chk').textContent = '✓');
-
 const smenu = document.getElementById('smenu');
 for (const sp of [0.5, 1, 1.5, 2]) {
   const b = document.createElement('button');
@@ -383,9 +481,7 @@ box.addEventListener('mousemove', showControls);
 box.addEventListener('touchstart', () => showControls(), { passive: true });
 document.addEventListener('fullscreenchange', () => { if (document.fullscreenElement) showControls(); });
 
-const first = links.find(x => x.tag === 'master') || links[0];
-curTag = first.tag;
-load(first.url);
+boot();
 </script>
 </body>
 </html>`;
@@ -395,18 +491,6 @@ function score(u) {
   const qs = ["1080", "720", "480", "360"];
   for (let i = 0; i < qs.length; i++) if (u.includes(qs[i])) return 4 - i;
   return 0;
-}
-
-function buildLinksExt(entries) {
-  return entries
-    .slice()
-    .sort((a, b) => score(b.embed) - score(a.embed))
-    .map((e) => {
-      const t = (e.headers && e.headers._tag) || (e.embed.includes("master") ? "master" : "360");
-      const tag = t === "master" ? "master" : t;
-      const label = tag === "master" ? "جودة تلقائية (master)" : tag + "p";
-      return { url: "/s/" + makeToken(e.embed, e.headers), tag, label };
-    });
 }
 
 function buildLinks(m3u8s) {
@@ -445,6 +529,41 @@ async function apiSearch(q) {
 
 function host(base) {
   try { return new URL(base).host; } catch { return base; }
+}
+
+function serverKey(base) {
+  return (base || "")
+    .replace(/^https?:\/\/(www\.)?/i, "")
+    .replace(/\/+$/, "")
+    .replace(/\/public\/api$/, "");
+}
+
+const SERVER_NAMES = {
+  "fashd.com/faselhd15": "فاشد",
+  "azertyquiz.com/shahed15": "شاهد",
+  "hrrejhp.com/mycimaa": "مسيما",
+  "hrrejhp.com/mycimajihedv20": "مسيما V20",
+  "hrrejgh.com/wecima15": "وي سيما",
+  "3echk.com/mortadha": "مرتضى",
+  "7odaeg.com/v2": "7odaeg",
+  "abcdef.flech.tn/egybestantojdid": "EgyBest جديد"
+};
+
+function serverName(base) { return SERVER_NAMES[serverKey(base)] || serverKey(base) || host(base); }
+
+async function pMap(items, fn, n) {
+  const out = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const k = i++;
+      try { out[k] = { ok: true, v: await fn(items[k]) }; }
+      catch (e) { out[k] = { ok: false, e }; }
+    }
+  }
+  if (!items.length) return out;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return out;
 }
 
 async function siteSearch(q) {
@@ -516,6 +635,24 @@ async function resolveEmbed(pageUrl, opts) {
   return { urls, cookies };
 }
 
+async function verifyAndLabel(url, extra) {
+  const h = stripLang({ ...CDN_HEADERS, ...(extra || {}) });
+  const r = await fetch(url, { headers: h, signal: AbortSignal.timeout(15000) });
+  if (!r.ok) return null;
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.subarray(0, 7).toString() !== "#EXTM3U") return null;
+  const text = buf.toString("utf8");
+  const widths = [...text.matchAll(/RESOLUTION=(\d+)x(\d+)/g)].map((m) => parseInt(m[1], 10));
+  const w = widths.length ? Math.max(...widths) : 0;
+  let tag = "auto", label = "تلقائي";
+  if (w >= 1880) { tag = "1080"; label = "1080p"; }
+  else if (w >= 1200) { tag = "720"; label = "720p"; }
+  else if (w >= 800) { tag = "480"; label = "480p"; }
+  else if (w >= 600) { tag = "360"; label = "360p"; }
+  else if (widths.length) { tag = "360"; label = "360p"; }
+  return { ok: true, tag, label };
+}
+
 async function extractFromEmbed(pageUrl, v) {
   const ua = (v && v.useragent) || UA;
   const ref = (v && v.header) || new URL(pageUrl).origin + "/";
@@ -523,44 +660,66 @@ async function extractFromEmbed(pageUrl, v) {
   const origin = new URL(pageUrl).origin;
   const eb = { Referer: origin + "/", Cookie: cookies, "User-Agent": ua, _embed: 1 };
   for (const u of urls) {
-    if (await verifyM3u8(u, eb)) {
-      let tag = u.includes("1080") ? "1080" : u.includes("720") ? "720" : u.includes("480") ? "480" : u.includes("360") ? "360" : "master";
-      return { embed: pageUrl, headers: { ...eb, _tag: tag } };
+    try {
+      const lab = await verifyAndLabel(u, eb);
+      if (lab && lab.ok) {
+        return { embed: pageUrl, headers: { ...eb, _tag: lab.tag }, label: lab.label };
+      }
+    } catch {
+      /* جرّب الرابط التالي */
     }
   }
   return null;
 }
 
-async function extractApiLinks(id) {
-  const errs = [];
-  for (const base of [API, ...BACKUPS]) {
-    let videos = [];
-    try {
-      videos = await apiDetail(id, base);
-    } catch (e) {
-      errs.push(host(base) + " " + String(e.message || e));
-      continue;
-    }
-    if (!videos.length) { errs.push(host(base) + " بلا روابط"); continue; }
-    const out = [];
-    for (const v of videos.slice(0, 12)) {
-      try {
-        const found = await extractFromEmbed(v.link, v);
-        if (found && !out.some((x) => x.embed === found.embed)) out.push(found);
-      } catch {
-        /* host غير متاح */
-      }
-    }
-    if (out.length) return { links: buildLinksExt(out), server: host(base) };
-    errs.push(host(base) + " فشل لليستها");
+const LINK_ORDER = { auto: 0, "1080": 1, "720": 2, "480": 3, "360": 4 };
+
+async function extractFromServer(base, id) {
+  const dk = "d:" + serverKey(base) + ":" + id;
+  const dc = detailCache.get(dk);
+  let videos;
+  if (dc && Date.now() - dc.ts < DETAIL_MS) videos = dc.videos;
+  else {
+    videos = await apiDetail(id, base);
+    detailCache.set(dk, { ts: Date.now(), videos });
   }
-  throw new Error("روابط التشغيل فشلت: " + errs.slice(0, 5).join(" | "));
+  if (!videos.length) return null;
+  const res = await pMap(videos.slice(0, 14), (v) => extractFromEmbed(v.link, v), 6);
+  const dedup = new Map();
+  for (const r of res) {
+    if (r.ok && r.v && !dedup.has(r.v.embed)) dedup.set(r.v.embed, r.v);
+  }
+  const entries = [...dedup.values()]
+    .sort((a, b) => (LINK_ORDER[(b.headers && b.headers._tag) || "auto"] ?? 9) - (LINK_ORDER[(a.headers && a.headers._tag) || "auto"] ?? 9))
+    .slice(0, 6);
+  if (!entries.length) return null;
+  return {
+    host: serverKey(base),
+    name: serverName(base),
+    links: entries.map((e) => ({
+      url: "/s/" + makeToken(e.embed, e.headers),
+      tag: (e.headers && e.headers._tag) || "auto",
+      label: e.label || "تلقائي"
+    }))
+  };
+}
+
+async function extractApiLinks(id) {
+  const bases = [API, ...BACKUPS];
+  const res = await Promise.allSettled(bases.map((b) => extractFromServer(b, id)));
+  const servers = [];
+  const errs = [];
+  res.forEach((r, i) => {
+    if (r.status === "fulfilled" && r.value) servers.push(r.value);
+    else errs.push(serverName(bases[i]) + " " + (r.status === "rejected" ? String((r.reason && r.reason.message) || r.reason) : "بلا روابط"));
+  });
+  if (!servers.length) throw new Error("كل السيرفرات فشلت: " + errs.slice(0, 5).join(" | "));
+  return { servers, errs };
 }
 
 async function getMovieLinks(movieId, title) {
   try {
-    const { links, server } = await extractApiLinks(movieId);
-    return { links, server };
+    return await extractApiLinks(movieId);
   } catch (apiErr) {
     try {
       const siteLinks = await siteSearch(title);
@@ -571,7 +730,7 @@ async function getMovieLinks(movieId, title) {
         const tok = l.url.split("/").pop();
         if (await verifyM3u8(resolveToken(tok))) links.push(l);
       }
-      return { links, server: host(SITE) };
+      return { servers: [{ host: serverKey(SITE), name: serverName(SITE), links }], errs: [String(apiErr.message || apiErr)] };
     } catch (e) {
       throw new Error(String(apiErr.message || apiErr) + " | site: " + String(e.message || e));
     }
@@ -603,21 +762,33 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
-app.get("/api/extract", async (req, res) => {
+async function linksHandler(movieId, title) {
+  const cached = cache.get(movieId);
+  if (cached && Date.now() - cached.ts < CACHE_MS && cached.servers.length) return cached;
+  const got = await getMovieLinks(movieId, title);
+  const box = { ts: Date.now(), servers: got.servers, errs: got.errs || [] };
+  cache.set(movieId, box);
+  return box;
+}
+
+function watchJson(got) {
+  return {
+    servers: got.servers,
+    links: got.servers[0] ? got.servers[0].links : [],
+    server: got.servers[0] ? got.servers[0].name : ""
+  };
+}
+
+app.get(["/api/extract", "/api/watch"], async (req, res) => {
   const movieId = String(req.query.id || "");
   const title = String(req.query.title || "");
+  if (!movieId) return res.status(400).json({ error: "id مطلوب" });
   const ip = (req.headers["x-forwarded-for"] || req.ip || "?").split(",")[0].trim();
   if (rateLimited(ip)) return res.status(429).json({ error: "تم إرسال طلبات كثيرة، انتظر دقيقة" });
 
-  const cached = cache.get(movieId);
-  if (cached && Date.now() - cached.ts < CACHE_MS) {
-    return res.json({ links: cached.links, server: cached.server });
-  }
-
   try {
-    const { links, server } = await getMovieLinks(movieId, title);
-    cache.set(movieId, { ts: Date.now(), links, server });
-    res.json({ links, server });
+    const got = await linksHandler(movieId, title);
+    res.json(watchJson(got));
   } catch (e) {
     res.status(502).json({ error: String(e.message || e) });
   }
@@ -676,24 +847,19 @@ app.get("/s/:token", async (req, res) => {
   res.send(body);
 });
 
-app.get("/watch", async (req, res) => {
+app.get("/watch", (req, res) => {
   const title = String(req.query.title || "فيلم");
   const movieId = String(req.query.id || "");
-  let links = cache.get(movieId)?.links || [];
-  let server = cache.get(movieId)?.server;
-  if (!links.length && movieId) {
-    try {
-      const got = await getMovieLinks(movieId, title);
-      links = got.links;
-      server = got.server;
-      if (links.length) cache.set(movieId, { ts: Date.now(), links, server });
-    } catch (e) {
-      return res.status(502).send("خطأ في تجهيز الروابط: " + String(e.message || e));
-    }
-  }
-  if (!links.length) return res.status(404).send("لا توجد روابط");
+  const cached = cache.get(movieId);
+  const init = cached && Date.now() - cached.ts < CACHE_MS && cached.servers.length
+    ? JSON.stringify(cached.servers)
+    : "null";
   res.set("Content-Type", "text/html; charset=utf-8").send(
-    WATCH_HTML.replace("{{title}}", title.replace(/</g, "&lt;")).replace("{{links}}", JSON.stringify(links))
+    WATCH_HTML
+      .replace("{{title}}", title.replace(/</g, "&lt;"))
+      .replace("{{titleJson}}", JSON.stringify(title))
+      .replace("{{vidJson}}", JSON.stringify(movieId))
+      .replace("{{init}}", init)
   );
 });
 

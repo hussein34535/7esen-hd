@@ -186,8 +186,8 @@ video { width:100%; height:100%; display:block; background:#000; outline:none; }
 .chip:hover { transform:translateY(-1px); border-color:rgba(255,255,255,.2); }
 .chip.active { background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 10px 26px rgba(229,9,20,.35); }
 .chip:disabled { opacity:.45; cursor:default; }
-.now { position:absolute; top:12px; right:12px; background:rgba(0,0,0,.62); backdrop-filter:blur(6px); color:#fff; font-size:11.5px; padding:6px 12px; border-radius:999px; z-index:6; pointer-events:none; max-width:70%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.now b { color:#ff7a80; font-weight:700; }
+.now { color:var(--dim); font-size:12.5px; margin:2px 2px 10px; }
+.now b { color:var(--accent); font-weight:700; }
 .load { display:flex; flex-direction:column; align-items:center; gap:14px; padding:80px 0; color:var(--dim); }
 .load .ld { width:44px; height:44px; border:4px solid rgba(255,255,255,.12); border-top-color:var(--accent); border-radius:50%; animation:rot .9s linear infinite; }
 
@@ -199,7 +199,8 @@ video { width:100%; height:100%; display:block; background:#000; outline:none; }
 .controls.visible { opacity:1; }
 .ic { width:38px; height:38px; flex:0 0 auto; border:none; background:transparent; color:#fff; font-size:19px; cursor:pointer; border-radius:10px; line-height:38px; text-align:center; padding:0; }
 .ic:hover { background:rgba(255,255,255,.14); }
-#bar { flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; background:rgba(255,255,255,.28); cursor:pointer; outline:none; }
+#bar { flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; cursor:pointer; outline:none; background:linear-gradient(to right, var(--accent) 0, var(--accent) var(--prog,0%), rgba(255,255,255,.16) var(--prog,0%), rgba(255,255,255,.16) var(--buf,100%), rgba(255,255,255,.07) var(--buf,100%)); }
+#bar::-moz-range-track { height:4px; border-radius:2px; background:rgba(255,255,255,.07); }
 #bar::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent); border:none; box-shadow:0 0 8px rgba(229,9,20,.6); }
 #bar::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:var(--accent); border:none; }
 .time { font-size:12px; color:#ddd; direction:ltr; white-space:nowrap; }
@@ -232,12 +233,12 @@ video { width:100%; height:100%; display:block; background:#000; outline:none; }
   <div id="err">مفيش روابط شغالة</div>
   <div style="display:none" id="stage">
     <div class="srvbar" id="srvbar"><span class="lbl">السيرفر:</span></div>
+    <div class="now" id="now"></div>
     <div class="player-box" id="box">
       <video id="player" playsinline preload="metadata"></video>
       <button class="center-play" id="bigplay">▶</button>
       <div class="spin" id="spin"></div>
       <div class="hint" id="hint"></div>
-      <div class="now" id="now"></div>
       <div class="controls" id="controls">
         <button class="ic" id="play">▶</button>
         <input type="range" id="bar" min="0" max="100" value="0" step="0.1">
@@ -265,7 +266,8 @@ video { width:100%; height:100%; display:block; background:#000; outline:none; }
 const TITLE = {{titleJson}};
 const VID = {{vidJson}};
 const INIT = {{init}};
-let DATA = null, hls = null, curLink = null, hideTimer = null, pausedByUser = true;
+let DATA = null, hls = null, curLink = null, hideTimer = null;
+let resumeAt = 0, autoplayNext = false, resumeDone = false, switching = false, scrubbing = false;
 const failed = new Set();
 const video = document.getElementById('player');
 const box = document.getElementById('box');
@@ -283,6 +285,7 @@ const nowEl = document.getElementById('now');
 const loadBox = document.getElementById('load');
 const stage = document.getElementById('stage');
 const qmenu = document.getElementById('qmenu');
+const playBtn = document.getElementById('play');
 
 function esc(s){ return String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmt(s) { if (!isFinite(s)) return '0:00'; s = Math.floor(s); const m = Math.floor(s/60), sec = s%60; return m + ':' + String(sec).padStart(2,'0'); }
@@ -294,8 +297,23 @@ function showControls() {
   if (!video.paused) hideTimer = setTimeout(() => ctr.classList.remove('visible'), 2800);
 }
 function showBig() {
+  syncPlayIcon();
   if (video.paused) { big.textContent = '▶'; big.classList.remove('hidden'); }
   else big.classList.add('hidden');
+}
+
+function syncPlayIcon() { playBtn.textContent = video.paused ? '▶' : '⏸'; }
+
+function paintBar() {
+  const d = video.duration || 0;
+  const prog = d ? (video.currentTime / d) * 100 : 0;
+  let buf = prog;
+  if (d && video.buffered && video.buffered.length) {
+    const end = video.buffered.end(video.buffered.length - 1);
+    buf = Math.max(buf, (end / d) * 100);
+  }
+  bar.style.setProperty('--prog', prog.toFixed(2) + '%');
+  bar.style.setProperty('--buf', Math.min(100, buf).toFixed(2) + '%');
 }
 
 document.querySelectorAll('.menu-wrap').forEach(w => {
@@ -380,12 +398,23 @@ function setServer(i) {
   loadLink(i, first);
 }
 
-function loadLink(i, l) {
+function loadLink(i, l, auto) {
+  if (auto !== true) failed.delete(DATA.servers[i].name + '|' + l.url);
   curLink = l;
   qmenu.querySelectorAll('.mi').forEach(m => m.classList.toggle('active', m.dataset.u === l.url));
   qmenu.querySelectorAll('.chk').forEach(c => c.textContent = '');
-  qmenu.querySelector('button[data-u="' + l.url + '"] .chk') && (qmenu.querySelector('button[data-u="' + l.url + '"] .chk').textContent = '✓');
+  const cur = qmenu.querySelector('button[data-u="' + l.url + '"] .chk');
+  if (cur) cur.textContent = '✓';
   nowEl.innerHTML = 'السيرفر <b>' + (i + 1) + '</b> — ' + esc(DATA.servers[i].name) + ' • ' + esc(l.label);
+  switching = true;
+  if (video.duration && isFinite(video.duration) && video.duration > 0 && video.readyState >= 1) {
+    resumeAt = video.currentTime;
+    autoplayNext = !video.paused;
+  } else {
+    resumeAt = 0;
+    autoplayNext = false;
+  }
+  resumeDone = false;
   load(l.url);
 }
 
@@ -396,7 +425,7 @@ function nextTry() {
       if (!failed.has(k)) {
         failed.add(k);
         showHint('بنحاول سيرفر/رابط تاني...');
-        loadLink(DATA.servers.indexOf(s), l);
+        loadLink(DATA.servers.indexOf(s), l, true);
         return;
       }
     }
@@ -405,14 +434,29 @@ function nextTry() {
   err.textContent = 'كل الروابط فشلت مؤقتًا، جرب فيلم تاني';
 }
 
+function tryResume() {
+  if (resumeDone) return;
+  if (!(video.duration && isFinite(video.duration) && video.duration > 0)) return;
+  if (resumeAt > 0 && resumeAt < video.duration - 2) {
+    try { video.currentTime = resumeAt; paintBar(); } catch (e) {}
+  }
+  resumeDone = true;
+  switching = false;
+  if (autoplayNext && video.paused) {
+    video.play().catch(() => { switching = false; showBig(); });
+  }
+  showControls();
+}
+
 function load(src) {
   showSpin(true);
+  switching = true;
   if (hls) { hls.destroy(); hls = null; }
   video.pause();
   video.removeAttribute('src');
   video.load();
   big.classList.remove('hidden');
-  pausedByUser = true;
+  syncPlayIcon();
   if (Hls.isSupported()) {
     hls = new Hls({ enableWorker: true, maxBufferLength: 30, maxMaxBufferLength: 60, startLevel: -1 });
     hls.loadSource(src);
@@ -431,25 +475,24 @@ function load(src) {
       const lv = hls.levels[d.level];
       if (lv && lv.height) qcur.textContent = lv.height + 'p';
     });
-    hls.on(Hls.Events.MANIFEST_PARSED, () => showSpin(false));
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls._f = 0;
+      showSpin(false);
+      tryResume();
+    });
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = src; showSpin(false);
+    video.src = src; showSpin(false); tryResume();
   } else {
     err.style.display = 'block'; err.textContent = 'المتصفح لا يدعم HLS'; showSpin(false);
   }
 }
 
 function togglePlay() {
-  if (video.paused) {
-    pausedByUser = false;
-    video.play().catch(() => {});
-  } else {
-    pausedByUser = true;
-    video.pause();
-  }
+  if (video.paused) video.play().catch(() => {});
+  else video.pause();
 }
 big.addEventListener('click', togglePlay);
-document.getElementById('play').addEventListener('click', togglePlay);
+playBtn.addEventListener('click', togglePlay);
 box.addEventListener('click', (e) => {
   if (e.target.closest('.menu-wrap') || e.target.closest('#bar') || e.target === big) return;
   togglePlay();
@@ -458,17 +501,26 @@ box.addEventListener('dblclick', () => { fullscreen(); });
 
 video.addEventListener('playing', () => { showSpin(false); showControls(); });
 video.addEventListener('waiting', () => { if (!video.paused) showSpin(true); });
-video.addEventListener('pause', () => showBig());
+video.addEventListener('pause', () => { if (!switching) showBig(); });
 video.addEventListener('play', () => { showBig(); showControls(); });
 video.addEventListener('timeupdate', () => {
-  if (video.duration) bar.value = (video.currentTime / video.duration) * 100;
+  if (!scrubbing) paintBar();
   tcur.textContent = fmt(video.currentTime);
 });
-video.addEventListener('loadedmetadata', () => { tdur.textContent = fmt(video.duration); });
+video.addEventListener('progress', paintBar);
+video.addEventListener('seeked', paintBar);
+video.addEventListener('durationchange', () => { tdur.textContent = fmt(video.duration); paintBar(); });
+video.addEventListener('loadedmetadata', () => { tdur.textContent = fmt(video.duration); tryResume(); });
+video.addEventListener('canplay', tryResume);
 
+bar.addEventListener('pointerdown', () => { scrubbing = true; });
 bar.addEventListener('input', () => {
   if (video.duration) video.currentTime = (bar.value / 100) * video.duration;
+  if (scrubbing) bar.style.setProperty('--prog', bar.value + '%');
 });
+const endScrub = () => { scrubbing = false; paintBar(); };
+bar.addEventListener('pointerup', endScrub);
+bar.addEventListener('pointercancel', endScrub);
 
 const smenu = document.getElementById('smenu');
 for (const sp of [0.5, 1, 1.5, 2]) {

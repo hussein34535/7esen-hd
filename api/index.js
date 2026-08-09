@@ -1,6 +1,6 @@
 const express = require("express");
-const { makeToken, resolveToken } = require("../lib/tokens");
-const { extractFromPage } = require("../lib/extractor");
+const { makeToken, resolveToken, resolveTokenFull } = require("../lib/tokens");
+const { extractFromPage, resolvePlayerM3u8 } = require("../lib/extractor");
 
 const CODE = process.env.FHD_CODE || "";
 const API = process.env.FHD_API || "https://fashd.com/faselhd15/public/api/";
@@ -21,6 +21,7 @@ const CDN_HEADERS = { ...HEADERS, Referer: SITE + "/", Origin: SITE };
 const app = express();
 const cache = new Map();
 const rl = new Map();
+const tokCache = new Map();
 const CACHE_MS = 1800 * 1000;
 const RATE_MAX = 5;
 
@@ -99,7 +100,7 @@ async function search() {
 function render(movies) {
   res.innerHTML = '';
   for (const m of movies) {
-    const poster = m.poster_path ? 'https://image.tmdb.org/t/p/w300' + m.poster_path : '';
+    const poster = posterUrl(m.poster_path);
     const year = (m.release_date || '').slice(0, 4);
     const el = document.createElement('div');
     el.className = 'movie';
@@ -383,11 +384,29 @@ load(first.url);
 </body>
 </html>`;
 
+function posterUrl(p) {
+  if (!p) return "";
+  if (p.startsWith("http")) return p.replace("http://", "https://").replace("/w500/", "/w300/");
+  return "https://image.tmdb.org/t/p/w300" + p;
+}
+
 function score(u) {
   if (u.includes("master")) return 5;
   const qs = ["1080", "720", "480", "360"];
   for (let i = 0; i < qs.length; i++) if (u.includes(qs[i])) return 4 - i;
   return 0;
+}
+
+function buildLinksExt(entries) {
+  return entries
+    .slice()
+    .sort((a, b) => score(b.embed) - score(a.embed))
+    .map((e) => {
+      const t = (e.headers && e.headers._tag) || (e.embed.includes("master") ? "master" : "360");
+      const tag = t === "master" ? "master" : t;
+      const label = tag === "master" ? "جودة تلقائية (master)" : tag + "p";
+      return { url: "/s/" + makeToken(e.embed, e.headers), tag, label };
+    });
 }
 
 function buildLinks(m3u8s) {
@@ -440,13 +459,120 @@ async function siteSearch(q) {
   return links;
 }
 
-async function verifyM3u8(url) {
+async function verifyM3u8(url, extra) {
   try {
-    const r = await fetch(url, { headers: CDN_HEADERS, signal: AbortSignal.timeout(15000) });
+    const r = await fetch(url, { headers: { ...CDN_HEADERS, ...(extra || {}) }, signal: AbortSignal.timeout(15000) });
     const buf = Buffer.from(await r.arrayBuffer());
     return r.ok && buf.subarray(0, 7).toString() === "#EXTM3U";
   } catch {
     return false;
+  }
+}
+
+async function getApiToken(base) {
+  if (tokCache.has(base)) return tokCache.get(base);
+  const name = "hd" + Date.now().toString(36) + Math.floor(Math.random() * 1e4);
+  const email = name + "@t.co";
+  const body = "name=" + encodeURIComponent(name) + "&email=" + encodeURIComponent(email) +
+    "&password=Test1234!&password_confirmation=Test1234!";
+  const r = await fetch(base + "register", {
+    method: "POST",
+    headers: { ...HEADERS, "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) throw new Error("register " + r.status);
+  const j = await r.json();
+  const tok = j && j.access_token;
+  if (!tok) throw new Error("no token");
+  tokCache.set(base, tok);
+  return tok;
+}
+
+async function apiDetail(id, base) {
+  const tok = await getApiToken(base);
+  const r = await fetch(base + "media/detail/" + encodeURIComponent(id) + "/" + CODE, {
+    headers: { ...HEADERS, Authorization: "Bearer " + tok },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) throw new Error("detail " + r.status);
+  const j = await r.json();
+  return (j.videos || []).filter((v) => v && v.link && v.status === 1 && !v.downloadonly);
+}
+
+async function resolveEmbed(pageUrl, opts) {
+  const ua = (opts && opts.ua) || UA;
+  const ref = (opts && opts.referer) || new URL(pageUrl).origin + "/";
+  const r = await fetch(pageUrl, {
+    headers: { "User-Agent": ua, Referer: ref, "Accept-Language": "ar,en;q=0.9" },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) throw new Error("embed " + r.status);
+  const text = await r.text();
+  const urls = resolvePlayerM3u8(text, pageUrl);
+  const cookies = [...text.matchAll(/\$\.cookie\(\s*'([^']+)'\s*,\s*'([^']+)'/g)].map((m) => m[1] + "=" + m[2]).join("; ");
+  return { urls, cookies };
+}
+
+async function extractFromEmbed(pageUrl, v) {
+  const ua = (v && v.useragent) || UA;
+  const ref = (v && v.header) || new URL(pageUrl).origin + "/";
+  const { urls, cookies } = await resolveEmbed(pageUrl, { ua, referer: ref });
+  const origin = new URL(pageUrl).origin;
+  const eb = { Referer: origin + "/", Cookie: cookies, "User-Agent": ua, _embed: 1 };
+  for (const u of urls) {
+    if (await verifyM3u8(u, eb)) {
+      let tag = u.includes("1080") ? "1080" : u.includes("720") ? "720" : u.includes("480") ? "480" : u.includes("360") ? "360" : "master";
+      return { embed: pageUrl, headers: { ...eb, _tag: tag } };
+    }
+  }
+  return null;
+}
+
+async function extractApiLinks(id) {
+  const errs = [];
+  for (const base of [API, ...BACKUPS]) {
+    let videos = [];
+    try {
+      videos = await apiDetail(id, base);
+    } catch (e) {
+      errs.push(host(base) + " " + String(e.message || e));
+      continue;
+    }
+    if (!videos.length) { errs.push(host(base) + " بلا روابط"); continue; }
+    const out = [];
+    for (const v of videos.slice(0, 12)) {
+      try {
+        const found = await extractFromEmbed(v.link, v);
+        if (found && !out.some((x) => x.embed === found.embed)) out.push(found);
+      } catch {
+        /* host غير متاح */
+      }
+    }
+    if (out.length) return { links: buildLinksExt(out), server: host(base) };
+    errs.push(host(base) + " فشل لليستها");
+  }
+  throw new Error("روابط التشغيل فشلت: " + errs.slice(0, 5).join(" | "));
+}
+
+async function getMovieLinks(movieId, title) {
+  try {
+    const { links, server } = await extractApiLinks(movieId);
+    return { links, server };
+  } catch (apiErr) {
+    try {
+      const siteLinks = await siteSearch(title);
+      const pageUrl = siteLinks[0] || SITE + "/?p=" + movieId;
+      const m3u8s = await extractFromPage(pageUrl);
+      const links = [];
+      for (const l of buildLinks(m3u8s)) {
+        const tok = l.url.split("/").pop();
+        if (await verifyM3u8(resolveToken(tok))) links.push(l);
+      }
+      return { links, server: host(SITE) };
+    } catch (e) {
+      throw new Error(String(apiErr.message || apiErr) + " | site: " + String(e.message || e));
+    }
   }
 }
 
@@ -483,31 +609,42 @@ app.get("/api/extract", async (req, res) => {
 
   const cached = cache.get(movieId);
   if (cached && Date.now() - cached.ts < CACHE_MS) {
-    return res.json({ links: cached.links });
+    return res.json({ links: cached.links, server: cached.server });
   }
 
   try {
-    const siteLinks = await siteSearch(title);
-    const pageUrl = siteLinks[0] || SITE + "/?p=" + movieId;
-    const m3u8s = await extractFromPage(pageUrl);
-    const links = [];
-    for (const l of buildLinks(m3u8s)) {
-      const tok = l.url.split("/").pop();
-      if (await verifyM3u8(resolveToken(tok))) links.push(l);
-    }
-    cache.set(movieId, { ts: Date.now(), links });
-    res.json({ links, page: pageUrl });
+    const { links, server } = await getMovieLinks(movieId, title);
+    cache.set(movieId, { ts: Date.now(), links, server });
+    res.json({ links, server });
   } catch (e) {
     res.status(502).json({ error: String(e.message || e) });
   }
 });
 
 app.get("/s/:token", async (req, res) => {
-  const url = resolveToken(req.params.token);
-  if (!url) return res.status(404).end();
+  const full = resolveTokenFull(req.params.token);
+  if (!full) return res.status(404).end();
+  const { url, headers } = full;
+  const hdrs = { ...(headers || CDN_HEADERS) };
+  delete hdrs._embed;
+  delete hdrs._tag;
+  let target = url;
+  if (headers && headers._embed) {
+    try {
+      const { urls, cookies } = await resolveEmbed(target, { ua: hdrs["User-Agent"] });
+      if (cookies) hdrs.Cookie = cookies;
+      let ok = false;
+      for (const u of urls) {
+        if (await verifyM3u8(u, hdrs)) { target = u; ok = true; break; }
+      }
+      if (!ok) return res.status(502).end();
+    } catch {
+      return res.status(502).end();
+    }
+  }
   let r;
   try {
-    r = await fetch(url, { headers: CDN_HEADERS, signal: AbortSignal.timeout(30000) });
+    r = await fetch(target, { headers: hdrs, signal: AbortSignal.timeout(30000) });
   } catch {
     return res.status(502).end();
   }
@@ -515,13 +652,13 @@ app.get("/s/:token", async (req, res) => {
   const body = Buffer.from(await r.arrayBuffer());
   const ct = r.headers.get("content-type") || "";
 
-  const isPlaylist = body.subarray(0, 7).toString() === "#EXTM3U" || url.includes("m3u8") || ct.includes("mpegurl") || ct.includes("playlist");
+  const isPlaylist = body.subarray(0, 7).toString() === "#EXTM3U" || target.includes("m3u8") || ct.includes("mpegurl") || ct.includes("playlist");
   if (isPlaylist) {
     const text = body.toString("utf8");
     const lines = text.split(/\r?\n/).map((line) => {
       if (line.startsWith("#") || !line.trim()) return line;
-      const seg = new URL(line.trim(), url).toString();
-      return "/s/" + makeToken(seg);
+      const seg = new URL(line.trim(), target).toString();
+      return "/s/" + makeToken(seg, hdrs);
     });
     res.set("Content-Type", "application/vnd.apple.mpegurl");
     res.set("Access-Control-Allow-Origin", "*");
@@ -529,7 +666,7 @@ app.get("/s/:token", async (req, res) => {
     return res.send(lines.join("\n"));
   }
 
-  res.set("Content-Type", url.includes(".ts") ? "video/mp2t" : ct || "application/octet-stream");
+  res.set("Content-Type", target.includes(".ts") ? "video/mp2t" : ct || "application/octet-stream");
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Cache-Control", "no-cache");
   res.send(body);
@@ -539,18 +676,13 @@ app.get("/watch", async (req, res) => {
   const title = String(req.query.title || "فيلم");
   const movieId = String(req.query.id || "");
   let links = cache.get(movieId)?.links || [];
+  let server = cache.get(movieId)?.server;
   if (!links.length && movieId) {
     try {
-      const siteLinks = await siteSearch(title);
-      const pageUrl = siteLinks[0] || SITE + "/?p=" + movieId;
-      const m3u8s = await extractFromPage(pageUrl);
-      const fresh = [];
-      for (const l of buildLinks(m3u8s)) {
-        const tok = l.url.split("/").pop();
-        if (await verifyM3u8(resolveToken(tok))) fresh.push(l);
-      }
-      links = fresh;
-      if (links.length) cache.set(movieId, { ts: Date.now(), links });
+      const got = await getMovieLinks(movieId, title);
+      links = got.links;
+      server = got.server;
+      if (links.length) cache.set(movieId, { ts: Date.now(), links, server });
     } catch (e) {
       return res.status(502).send("خطأ في تجهيز الروابط: " + String(e.message || e));
     }

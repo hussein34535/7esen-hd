@@ -97,6 +97,12 @@ async function search() {
   btn.disabled = false;
 }
 
+function posterUrl(p) {
+  if (!p) return '';
+  if (p.startsWith('http')) return p.replace('http://', 'https://').replace('/w500/', '/w300/');
+  return 'https://image.tmdb.org/t/p/w300' + p;
+}
+
 function render(movies) {
   res.innerHTML = '';
   for (const m of movies) {
@@ -383,12 +389,6 @@ load(first.url);
 </script>
 </body>
 </html>`;
-
-function posterUrl(p) {
-  if (!p) return "";
-  if (p.startsWith("http")) return p.replace("http://", "https://").replace("/w500/", "/w300/");
-  return "https://image.tmdb.org/t/p/w300" + p;
-}
 
 function score(u) {
   if (u.includes("master")) return 5;

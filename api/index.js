@@ -34,30 +34,41 @@ const INDEX_HTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>7esen HD | بث مباشر</title>
 <style>
-:root { --bg:#0b0d12; --card:#141823; --border:#232a3a; --text:#e8ecf4; --dim:#8b93a7; --accent:#ff434c; --accent2:#6c5ce7; }
+:root { --bg:#0a0b10; --card:#13151d; --border:rgba(255,255,255,.07); --text:#f2f4f8; --dim:#8b93a7; --accent:#e50914; --accent2:#6c5ce7; }
 * { box-sizing:border-box; margin:0; padding:0; }
-body { background:var(--bg); color:var(--text); font-family:'Segoe UI',Tahoma,sans-serif; min-height:100vh; }
-header { padding:22px; text-align:center; border-bottom:1px solid var(--border); }
-header h1 { font-size:26px; letter-spacing:.5px; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; min-height:100vh; }
+header { padding:54px 22px 34px; text-align:center; background:radial-gradient(1200px 420px at 50% -120px, rgba(229,9,20,.16), transparent 70%); border-bottom:1px solid var(--border); }
+header h1 { font-size:30px; letter-spacing:-.5px; font-weight:800; }
 header h1 span { color:var(--accent); }
-header p { color:var(--dim); font-size:13px; margin-top:6px; }
-.search-wrap { max-width:640px; margin:30px auto 0; padding:0 16px; }
-.search-box { display:flex; gap:10px; }
-.search-box input { flex:1; padding:14px 18px; border-radius:12px; border:1px solid var(--border); background:var(--card); color:var(--text); font-size:16px; outline:none; }
-.search-box input:focus { border-color:var(--accent); }
-.search-box button { padding:14px 26px; border:none; border-radius:12px; background:var(--accent); color:#fff; font-size:16px; font-weight:bold; cursor:pointer; }
+header p { color:var(--dim); font-size:14px; margin-top:8px; }
+.search-wrap { max-width:620px; margin:-22px auto 0; padding:0 16px; position:relative; z-index:2; }
+.search-box { display:flex; gap:10px; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:8px; box-shadow:0 18px 50px rgba(0,0,0,.55); }
+.search-box input { flex:1; padding:12px 14px; border:none; background:transparent; color:var(--text); font-size:16px; outline:none; }
+.search-box input::placeholder { color:var(--dim); }
+.search-box button { padding:12px 26px; border:none; border-radius:12px; background:var(--accent); color:#fff; font-size:15px; font-weight:700; cursor:pointer; transition:filter .15s; }
+.search-box button:hover { filter:brightness(1.12); }
 .search-box button:disabled { opacity:.5; cursor:wait; }
-#status { text-align:center; color:var(--dim); margin:16px 0; font-size:14px; }
-#results { max-width:1000px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:14px; }
-.movie { background:var(--card); border:1px solid var(--border); border-radius:14px; overflow:hidden; cursor:pointer; transition:transform .15s, border-color .15s; }
-.movie:hover { transform:translateY(-3px); border-color:var(--accent); }
+#status { text-align:center; color:var(--dim); margin:18px 0 6px; font-size:14px; }
+#results { max-width:1060px; margin:18px auto 60px; padding:0 16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); gap:18px; }
+.movie { background:var(--card); border:1px solid var(--border); border-radius:16px; overflow:hidden; cursor:pointer; transition:transform .18s, box-shadow .18s; }
+.movie:hover { transform:translateY(-4px); box-shadow:0 14px 34px rgba(0,0,0,.5); }
 .movie img { width:100%; aspect-ratio:2/3; object-fit:cover; background:#000; display:block; }
-.movie .info { padding:10px 12px; }
+.movie .info { padding:10px 12px 12px; }
 .movie .info .t { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .movie .info .y { color:var(--dim); font-size:12px; margin-top:3px; }
-.movie .info .l { color:var(--accent2); font-size:11px; margin-top:4px; }
+.movie .info .l { color:var(--accent2); font-size:11px; margin-top:5px; font-weight:600; }
 .hint { text-align:center; color:var(--dim); margin-top:80px; font-size:15px; }
 .hint b { color:var(--accent); }
+@media (max-width:640px) {
+  header { padding:44px 18px 40px; }
+  header h1 { font-size:24px; }
+  #results { grid-template-columns:repeat(3,1fr); gap:8px; padding:0 10px; }
+  .movie { border-radius:10px; }
+  .movie img { aspect-ratio:1/1; }
+  .movie .info { padding:6px 8px 8px; }
+  .movie .info .t { font-size:11px; }
+  .movie .info .y, .movie .info .l { display:none; }
+}
 </style>
 </head>
 <body>
@@ -157,55 +168,55 @@ const WATCH_HTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{title}} | 7esen HD</title>
 <style>
-:root { --bg:#0b0d12; --card:#141823; --border:#232a3a; --text:#e8ecf4; --dim:#8b93a7; --accent:#ff434c; --accent2:#6c5ce7; }
+:root { --bg:#0a0b10; --card:#13151d; --border:rgba(255,255,255,.07); --text:#f2f4f8; --dim:#8b93a7; --accent:#e50914; --accent2:#6c5ce7; }
 * { box-sizing:border-box; margin:0; padding:0; }
-body { background:var(--bg); color:var(--text); font-family:'Segoe UI',Tahoma,sans-serif; min-height:100vh; }
-.top { display:flex; align-items:center; gap:14px; padding:16px 22px; border-bottom:1px solid var(--border); }
-.top a { color:var(--accent); text-decoration:none; font-size:15px; font-weight:bold; }
-.top h1 { font-size:18px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
-.player-box { border-radius:14px; overflow:hidden; border:1px solid var(--border); background:#000; position:relative; aspect-ratio:16/9; cursor:pointer; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; min-height:100vh; }
+.top { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--border); position:sticky; top:0; background:rgba(10,11,16,.9); backdrop-filter:blur(12px); z-index:20; }
+.top a { color:var(--text); text-decoration:none; font-size:13px; font-weight:600; padding:8px 14px; border-radius:999px; background:var(--card); border:1px solid var(--border); transition:background .15s; white-space:nowrap; }
+.top a:hover { background:#1c1f2a; }
+.top h1 { font-size:16px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wrap { max-width:1100px; margin:18px auto 50px; padding:0 16px; }
+.player-box { border-radius:16px; overflow:hidden; background:#000; position:relative; aspect-ratio:16/9; cursor:pointer; box-shadow:0 26px 80px rgba(0,0,0,.65); }
+.player-box:fullscreen { border-radius:0; box-shadow:none; }
 video { width:100%; height:100%; display:block; background:#000; outline:none; }
 
-.srvbar, .qbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
-.srvbar { margin-top:4px; }
-.srvbar .lbl, .qbar .lbl { align-self:center; color:var(--dim); font-size:12px; margin-left:4px; }
-.chip { padding:8px 14px; border-radius:999px; border:1px solid var(--border); background:var(--card); color:var(--text); font-size:13px; cursor:pointer; transition:border-color .15s, background .15s; }
-.chip small { color:var(--dim); margin-right:4px; }
-.chip:hover { border-color:var(--accent2); }
-.chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
-.chip.active small { color:#ffd9db; }
+.srvbar { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin:6px 0 12px; }
+.srvbar .lbl { color:var(--dim); font-size:12px; margin-left:4px; }
+.chip { min-width:42px; height:42px; padding:0 15px; border-radius:13px; border:1px solid var(--border); background:var(--card); color:var(--text); font-size:15px; font-weight:700; cursor:pointer; transition:background .15s, border-color .15s, color .15s, transform .12s, box-shadow .15s; }
+.chip:hover { transform:translateY(-1px); border-color:rgba(255,255,255,.2); }
+.chip.active { background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 10px 26px rgba(229,9,20,.35); }
 .chip:disabled { opacity:.45; cursor:default; }
-.now { font-size:13px; color:var(--dim); margin-bottom:10px; }
-.now b { color:var(--accent2); }
-.load { display:flex; flex-direction:column; align-items:center; gap:14px; padding:70px 0; color:var(--dim); }
-.load .ld { width:42px; height:42px; border:4px solid rgba(255,255,255,.15); border-top-color:var(--accent); border-radius:50%; animation:rot .9s linear infinite; }
+.now { position:absolute; top:12px; right:12px; background:rgba(0,0,0,.62); backdrop-filter:blur(6px); color:#fff; font-size:11.5px; padding:6px 12px; border-radius:999px; z-index:6; pointer-events:none; max-width:70%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.now b { color:#ff7a80; font-weight:700; }
+.load { display:flex; flex-direction:column; align-items:center; gap:14px; padding:80px 0; color:var(--dim); }
+.load .ld { width:44px; height:44px; border:4px solid rgba(255,255,255,.12); border-top-color:var(--accent); border-radius:50%; animation:rot .9s linear infinite; }
 
-.center-play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:80px; height:80px; border-radius:50%; border:none; background:rgba(255,67,76,.92); color:#fff; font-size:30px; cursor:pointer; z-index:5; transition:transform .15s, opacity .2s; box-shadow:0 8px 30px rgba(255,67,76,.4); }
-.center-play:hover { transform:translate(-50%,-50%) scale(1.08); }
+.center-play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:84px; height:84px; border-radius:50%; border:none; background:rgba(229,9,20,.94); color:#fff; font-size:32px; cursor:pointer; z-index:5; transition:transform .15s, opacity .2s; box-shadow:0 12px 40px rgba(229,9,20,.5); }
+.center-play:hover { transform:translate(-50%,-50%) scale(1.07); }
 .center-play.hidden { opacity:0; pointer-events:none; }
 
-.controls { position:absolute; inset:auto 0 0 0; padding:60px 16px 12px; background:linear-gradient(to top, rgba(0,0,0,.85), transparent); display:flex; align-items:center; gap:12px; opacity:0; transition:opacity .25s; z-index:4; }
+.controls { position:absolute; inset:auto 0 0 0; padding:64px 16px 12px; background:linear-gradient(to top, rgba(0,0,0,.9), transparent); display:flex; align-items:center; gap:12px; opacity:0; transition:opacity .25s; z-index:4; }
 .controls.visible { opacity:1; }
-.ic { width:36px; height:36px; flex:0 0 auto; border:none; background:transparent; color:#fff; font-size:19px; cursor:pointer; border-radius:8px; line-height:36px; text-align:center; padding:0; }
+.ic { width:38px; height:38px; flex:0 0 auto; border:none; background:transparent; color:#fff; font-size:19px; cursor:pointer; border-radius:10px; line-height:38px; text-align:center; padding:0; }
 .ic:hover { background:rgba(255,255,255,.14); }
-#bar { flex:1; -webkit-appearance:none; appearance:none; height:5px; border-radius:3px; background:rgba(255,255,255,.25); cursor:pointer; outline:none; }
-#bar::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent); border:none; }
+#bar { flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; background:rgba(255,255,255,.28); cursor:pointer; outline:none; }
+#bar::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent); border:none; box-shadow:0 0 8px rgba(229,9,20,.6); }
 #bar::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:var(--accent); border:none; }
 .time { font-size:12px; color:#ddd; direction:ltr; white-space:nowrap; }
 .menu-wrap { position:relative; }
-.menu { position:absolute; bottom:44px; right:0; background:rgba(10,12,18,.96); border:1px solid var(--border); border-radius:12px; padding:8px; min-width:150px; display:none; flex-direction:column; gap:4px; z-index:10; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+.menu { position:absolute; bottom:46px; right:0; background:rgba(12,14,20,.97); border:1px solid var(--border); border-radius:14px; padding:8px; min-width:170px; display:none; flex-direction:column; gap:4px; z-index:12; box-shadow:0 16px 44px rgba(0,0,0,.7); backdrop-filter:blur(14px); }
 .menu.open { display:flex; }
-.menu .mi { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; border:none; background:transparent; color:var(--text); font-size:13px; cursor:pointer; text-align:right; width:100%; }
+.menu .mi { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 12px; border-radius:9px; border:none; background:transparent; color:var(--text); font-size:13px; cursor:pointer; text-align:right; width:100%; }
 .menu .mi:hover { background:rgba(255,255,255,.08); }
-.menu .mi.active { color:var(--accent); font-weight:bold; }
+.menu .mi.active { color:var(--accent); font-weight:700; }
 .menu .mi .chk { color:var(--accent); font-size:15px; }
-.hint { position:absolute; bottom:52px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.8); color:#fff; font-size:12px; padding:6px 12px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; z-index:11; }
+.menu .mi .sub { color:var(--dim); font-size:11px; font-weight:400; }
+.hint { position:absolute; bottom:54px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.82); color:#fff; font-size:12px; padding:6px 12px; border-radius:10px; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; z-index:11; }
 .hint.show { opacity:1; }
-.spin { width:54px; height:54px; border:4px solid rgba(255,255,255,.2); border-top-color:var(--accent); border-radius:50%; position:absolute; top:50%; left:50%; margin:-27px 0 0 -27px; animation:rot .9s linear infinite; display:none; z-index:3; }
+.spin { width:56px; height:56px; border:4px solid rgba(255,255,255,.18); border-top-color:var(--accent); border-radius:50%; position:absolute; top:50%; left:50%; margin:-28px 0 0 -28px; animation:rot .9s linear infinite; display:none; z-index:3; }
 @keyframes rot { to { transform:rotate(360deg); } }
 #err { display:none; text-align:center; color:var(--accent); padding:40px 0; font-size:16px; }
-#qcur { font-size:11px; color:#bbb; direction:ltr; }
+#qcur { font-size:11px; color:#bbb; direction:ltr; background:rgba(255,255,255,.08); border-radius:8px; height:38px; line-height:38px; width:auto; padding:0 10px; }
 </style>
 </head>
 <body>
@@ -220,14 +231,13 @@ video { width:100%; height:100%; display:block; background:#000; outline:none; }
   </div>
   <div id="err">مفيش روابط شغالة</div>
   <div style="display:none" id="stage">
-    <div class="srvbar" id="srvbar"><span class="lbl">السيرفرات:</span></div>
-    <div class="qbar" id="qbar"><span class="lbl">الجودة:</span></div>
-    <div class="now" id="now"></div>
+    <div class="srvbar" id="srvbar"><span class="lbl">السيرفر:</span></div>
     <div class="player-box" id="box">
       <video id="player" playsinline preload="metadata"></video>
       <button class="center-play" id="bigplay">▶</button>
       <div class="spin" id="spin"></div>
       <div class="hint" id="hint"></div>
+      <div class="now" id="now"></div>
       <div class="controls" id="controls">
         <button class="ic" id="play">▶</button>
         <input type="range" id="bar" min="0" max="100" value="0" step="0.1">
@@ -235,6 +245,10 @@ video { width:100%; height:100%; display:block; background:#000; outline:none; }
         <span class="time">/</span>
         <span class="time" id="tdur">0:00</span>
         <span class="ic" id="qcur"></span>
+        <div class="menu-wrap" id="qwrap">
+          <button class="ic" id="qbtn" title="الجودة">⛭</button>
+          <div class="menu" id="qmenu"></div>
+        </div>
         <div class="menu-wrap" id="swrap">
           <button class="ic" id="sbtn" title="السرعة">▶▶</button>
           <div class="menu" id="smenu"></div>
@@ -265,10 +279,10 @@ const tcur = document.getElementById('tcur');
 const tdur = document.getElementById('tdur');
 const qcur = document.getElementById('qcur');
 const srvbar = document.getElementById('srvbar');
-const qbar = document.getElementById('qbar');
 const nowEl = document.getElementById('now');
 const loadBox = document.getElementById('load');
 const stage = document.getElementById('stage');
+const qmenu = document.getElementById('qmenu');
 
 function esc(s){ return String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmt(s) { if (!isFinite(s)) return '0:00'; s = Math.floor(s); const m = Math.floor(s/60), sec = s%60; return m + ':' + String(sec).padStart(2,'0'); }
@@ -333,12 +347,13 @@ function boot() {
 }
 
 function render() {
-  srvbar.innerHTML = '<span class="lbl">السيرفرات:</span>';
+  srvbar.innerHTML = '<span class="lbl">السيرفر:</span>';
   DATA.servers.forEach((s, i) => {
     const b = document.createElement('button');
     b.className = 'chip srv';
     b.dataset.i = i;
-    b.innerHTML = esc(s.name) + ' <small>' + s.links.length + '</small>';
+    b.textContent = String(i + 1);
+    b.title = s.name + ' (' + s.links.length + ' روابط)';
     b.addEventListener('click', () => setServer(i));
     srvbar.appendChild(b);
   });
@@ -348,15 +363,18 @@ function render() {
 
 function setServer(i) {
   srvbar.querySelectorAll('.srv').forEach(c => c.classList.toggle('active', Number(c.dataset.i) === i));
-  qbar.innerHTML = '<span class="lbl">الجودة:</span>';
   const sv = DATA.servers[i];
+  qmenu.innerHTML = '';
   sv.links.forEach(l => {
     const b = document.createElement('button');
-    b.className = 'chip q';
+    b.className = 'mi';
     b.dataset.u = l.url;
-    b.textContent = l.label;
-    b.addEventListener('click', () => loadLink(i, l));
-    qbar.appendChild(b);
+    b.innerHTML = esc(l.label) + '<span class="chk"></span>';
+    b.addEventListener('click', () => {
+      loadLink(i, l);
+      qmenu.classList.remove('open');
+    });
+    qmenu.appendChild(b);
   });
   const first = sv.links.find(l => l.tag === 'master' || l.tag === 'auto') || sv.links[0];
   loadLink(i, first);
@@ -364,8 +382,10 @@ function setServer(i) {
 
 function loadLink(i, l) {
   curLink = l;
-  qbar.querySelectorAll('.q').forEach(c => c.classList.toggle('active', c.dataset.u === l.url));
-  nowEl.innerHTML = 'السيرفر: <b>' + esc(DATA.servers[i].name) + '</b> — الجودة: ' + esc(l.label);
+  qmenu.querySelectorAll('.mi').forEach(m => m.classList.toggle('active', m.dataset.u === l.url));
+  qmenu.querySelectorAll('.chk').forEach(c => c.textContent = '');
+  qmenu.querySelector('button[data-u="' + l.url + '"] .chk') && (qmenu.querySelector('button[data-u="' + l.url + '"] .chk').textContent = '✓');
+  nowEl.innerHTML = 'السيرفر <b>' + (i + 1) + '</b> — ' + esc(DATA.servers[i].name) + ' • ' + esc(l.label);
   load(l.url);
 }
 

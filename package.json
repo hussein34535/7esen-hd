@@ -5,5 +5,8 @@
   "dependencies": {
     "express": "^4.21.2",
     "jsdom": "^29.1.1"
+  },
+  "overrides": {
+    "html-encoding-sniffer": "4.0.0"
   }
 }

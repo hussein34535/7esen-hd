@@ -510,11 +510,26 @@ app.get("/s/:token", async (req, res) => {
   res.send(body);
 });
 
-app.get("/watch", (req, res) => {
+app.get("/watch", async (req, res) => {
   const title = String(req.query.title || "فيلم");
   const movieId = String(req.query.id || "");
-  const cached = cache.get(movieId);
-  const links = cached ? cached.links : [];
+  let links = cache.get(movieId)?.links || [];
+  if (!links.length && movieId) {
+    try {
+      const siteLinks = await siteSearch(title);
+      const pageUrl = siteLinks[0] || SITE + "/?p=" + movieId;
+      const m3u8s = await extractFromPage(pageUrl);
+      const fresh = [];
+      for (const l of buildLinks(m3u8s)) {
+        const tok = l.url.split("/").pop();
+        if (await verifyM3u8(resolveToken(tok))) fresh.push(l);
+      }
+      links = fresh;
+      if (links.length) cache.set(movieId, { ts: Date.now(), links });
+    } catch (e) {
+      return res.status(502).send("خطأ في تجهيز الروابط: " + String(e.message || e));
+    }
+  }
   if (!links.length) return res.status(404).send("لا توجد روابط");
   res.set("Content-Type", "text/html; charset=utf-8").send(
     WATCH_HTML.replace("{{title}}", title.replace(/</g, "&lt;")).replace("{{links}}", JSON.stringify(links))

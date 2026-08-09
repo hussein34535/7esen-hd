@@ -4,6 +4,15 @@ const { extractFromPage } = require("../lib/extractor");
 
 const CODE = process.env.FHD_CODE || "";
 const API = process.env.FHD_API || "https://fashd.com/faselhd15/public/api/";
+const BACKUPS = (process.env.FHD_BACKUPS || [
+  "https://7odaeg.com/v2/public/api/",
+  "https://abcdef.flech.tn/egybestantojdid/public/api/",
+  "https://hrrejhp.com/mycimaa/public/api/",
+  "https://hrrejhp.com/mycimajihedv20/public/api/",
+  "https://hrrejgh.com/wecima15/public/api/",
+  "https://azertyquiz.com/shahed15/public/api/",
+  "https://3echk.com/mortadha/public/api/"
+].join(",")).split(",").map((s) => s.trim()).filter(Boolean);
 const SITE = process.env.FHD_SITE || "https://web8818x.faselhdx.life";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 const HEADERS = { "User-Agent": UA, "Accept-Language": "ar,en;q=0.9" };
@@ -81,7 +90,7 @@ async function search() {
     const r = await fetch('/api/search?q=' + encodeURIComponent(q));
     const data = await r.json();
     if (!data.results.length) { st.textContent = 'مفيش نتائج 😐'; return; }
-    st.textContent = 'لقيت ' + data.results.length + ' نتيجة';
+    st.textContent = 'لقيت ' + data.results.length + ' نتيجة' + (data.server ? ' — المصدر: ' + data.server : '');
     render(data.results);
   } catch (e) { st.textContent = 'خطأ في البحث'; }
   btn.disabled = false;
@@ -397,11 +406,26 @@ function buildLinks(m3u8s) {
 }
 
 async function apiSearch(q) {
-  const url = API + "search/" + encodeURIComponent(q) + "/" + CODE;
-  const r = await fetch(url, { headers: HEADERS });
-  if (!r.ok) throw new Error("api " + r.status);
-  const data = await r.json();
-  return (data.search || []).filter((m) => String(m.type || "").toLowerCase() === "movie");
+  const bases = [API, ...BACKUPS];
+  const errs = [];
+  for (const base of bases) {
+    try {
+      const url = base + "search/" + encodeURIComponent(q) + "/" + CODE;
+      const r = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) { errs.push(host(base) + " HTTP " + r.status); continue; }
+      const data = await r.json();
+      const found = (data.search || []).filter((m) => String(m.type || "").toLowerCase() === "movie");
+      if (found.length) return { results: found, server: host(base) };
+      errs.push(host(base) + " فارغ");
+    } catch (e) {
+      errs.push(host(base) + " " + String(e.message || e));
+    }
+  }
+  throw new Error("كل السيرفرات فشلت: " + errs.join(" | "));
+}
+
+function host(base) {
+  try { return new URL(base).host; } catch { return base; }
 }
 
 async function siteSearch(q) {
@@ -444,8 +468,8 @@ app.get("/api/search", async (req, res) => {
   if (!q) return res.json({ results: [] });
   if (!CODE) return res.status(500).json({ error: "FHD_CODE غير مضبوط في الإعدادات" });
   try {
-    const results = await apiSearch(q);
-    res.json({ results });
+    const { results, server } = await apiSearch(q);
+    res.json({ results, server });
   } catch (e) {
     res.status(502).json({ error: String(e.message || e) });
   }

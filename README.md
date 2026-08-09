@@ -22,7 +22,8 @@ package.json          — الاعتماديات (express + jsdom فقط — خ�
    vercel env add FHD_CODE
    ```
    القيمة: `p2lbgWkFrykA4QyUmpHihzmc5BNzIABq` — **يضاف فقط منك، غير موجود في الملفات**
-5. أعد النشر: `vercel --prod`
+5. (اختياري) `FHD_BACKUPS` — قائمة سيرفرات احتياطية مفصولة بفواصل، على نفس `FHD_CODE`. الافتراضي في الكود (7 سيرفرات متأكدة من شغلها). FHD_API الثانوي بيُجرّب الأول ثم backups بالترتيب.
+6. أعد النشر: `vercel --prod`
 
 ### الطريقة عبر الداشبورد:
 1. ارفع المجلد على GitHub (repo عام أو خاص)

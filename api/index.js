@@ -146,19 +146,34 @@ body { background:var(--bg); color:var(--text); font-family:'Segoe UI',Tahoma,sa
 .top a { color:var(--accent); text-decoration:none; font-size:15px; font-weight:bold; }
 .top h1 { font-size:18px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
-.player-box { border-radius:14px; overflow:hidden; border:1px solid var(--border); background:#000; position:relative; }
-video { width:100%; aspect-ratio:16/9; display:block; background:#000; outline:none; }
-.ctrl { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:14px 18px; background:var(--card); border:1px solid var(--border); border-top:none; border-radius:0 0 14px 14px; }
-.btn { padding:8px 16px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; font-size:13px; font-weight:bold; }
-.btn:hover { border-color:var(--accent); }
-.btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
-.sep { flex:1; }
-.qinfo { font-size:12px; color:var(--dim); padding:0 4px; }
-.group { display:flex; align-items:center; gap:6px; }
-.glabel { font-size:12px; color:var(--dim); }
-#err { display:none; text-align:center; color:var(--accent); padding:40px 0; font-size:16px; }
-.spin { width:54px; height:54px; border:4px solid var(--border); border-top-color:var(--accent); border-radius:50%; position:absolute; top:50%; left:50%; margin:-27px 0 0 -27px; animation:rot .9s linear infinite; display:none; }
+.player-box { border-radius:14px; overflow:hidden; border:1px solid var(--border); background:#000; position:relative; aspect-ratio:16/9; cursor:pointer; }
+video { width:100%; height:100%; display:block; background:#000; outline:none; }
+
+.center-play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:80px; height:80px; border-radius:50%; border:none; background:rgba(255,67,76,.92); color:#fff; font-size:30px; cursor:pointer; z-index:5; transition:transform .15s, opacity .2s; box-shadow:0 8px 30px rgba(255,67,76,.4); }
+.center-play:hover { transform:translate(-50%,-50%) scale(1.08); }
+.center-play.hidden { opacity:0; pointer-events:none; }
+
+.controls { position:absolute; inset:auto 0 0 0; padding:60px 16px 12px; background:linear-gradient(to top, rgba(0,0,0,.85), transparent); display:flex; align-items:center; gap:12px; opacity:0; transition:opacity .25s; z-index:4; }
+.controls.visible { opacity:1; }
+.ic { width:36px; height:36px; flex:0 0 auto; border:none; background:transparent; color:#fff; font-size:19px; cursor:pointer; border-radius:8px; line-height:36px; text-align:center; padding:0; }
+.ic:hover { background:rgba(255,255,255,.14); }
+#bar { flex:1; -webkit-appearance:none; appearance:none; height:5px; border-radius:3px; background:rgba(255,255,255,.25); cursor:pointer; outline:none; }
+#bar::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent); border:none; }
+#bar::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:var(--accent); border:none; }
+.time { font-size:12px; color:#ddd; direction:ltr; white-space:nowrap; }
+.menu-wrap { position:relative; }
+.menu { position:absolute; bottom:44px; right:0; background:rgba(10,12,18,.96); border:1px solid var(--border); border-radius:12px; padding:8px; min-width:150px; display:none; flex-direction:column; gap:4px; z-index:10; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+.menu.open { display:flex; }
+.menu .mi { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; border:none; background:transparent; color:var(--text); font-size:13px; cursor:pointer; text-align:right; width:100%; }
+.menu .mi:hover { background:rgba(255,255,255,.08); }
+.menu .mi.active { color:var(--accent); font-weight:bold; }
+.menu .mi .chk { color:var(--accent); font-size:15px; }
+.hint { position:absolute; bottom:52px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.8); color:#fff; font-size:12px; padding:6px 12px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; z-index:11; }
+.hint.show { opacity:1; }
+.spin { width:54px; height:54px; border:4px solid rgba(255,255,255,.2); border-top-color:var(--accent); border-radius:50%; position:absolute; top:50%; left:50%; margin:-27px 0 0 -27px; animation:rot .9s linear infinite; display:none; z-index:3; }
 @keyframes rot { to { transform:rotate(360deg); } }
+#err { display:none; text-align:center; color:var(--accent); padding:40px 0; font-size:16px; }
+#qcur { font-size:11px; color:#bbb; direction:ltr; }
 </style>
 </head>
 <body>
@@ -168,112 +183,191 @@ video { width:100%; aspect-ratio:16/9; display:block; background:#000; outline:n
 </div>
 <div class="wrap">
   <div id="err">مفيش روابط شغالة</div>
-  <div class="player-box">
-    <video id="player" controls playsinline></video>
+  <div class="player-box" id="box">
+    <video id="player" playsinline preload="metadata"></video>
+    <button class="center-play" id="bigplay">▶</button>
     <div class="spin" id="spin"></div>
-  </div>
-  <div class="ctrl">
-    <div class="group">
-      <span class="glabel">الجودة:</span>
-      <div class="group" id="quals"></div>
+    <div class="hint" id="hint"></div>
+    <div class="controls" id="controls">
+      <button class="ic" id="play">▶</button>
+      <input type="range" id="bar" min="0" max="100" value="0" step="0.1">
+      <span class="time" id="tcur">0:00</span>
+      <span class="time">/</span>
+      <span class="time" id="tdur">0:00</span>
+      <span class="ic" id="qcur"></span>
+      <div class="menu-wrap" id="qwrap">
+        <button class="ic" id="qbtn" title="الجودة">⛭</button>
+        <div class="menu" id="qmenu"></div>
+      </div>
+      <div class="menu-wrap" id="swrap">
+        <button class="ic" id="sbtn" title="السرعة">▶▶</button>
+        <div class="menu" id="smenu"></div>
+      </div>
+      <button class="ic" id="pip" title="نافذة صغيرة">▣</button>
+      <button class="ic" id="full" title="ملء الشاشة">⛶</button>
     </div>
-    <div class="group">
-      <span class="glabel">السرعة:</span>
-      <button class="btn" data-speed="0.5">0.5x</button>
-      <button class="btn active" data-speed="1">1x</button>
-      <button class="btn" data-speed="1.5">1.5x</button>
-      <button class="btn" data-speed="2">2x</button>
-    </div>
-    <div class="sep"></div>
-    <span class="qinfo" id="qinfo"></span>
-    <button class="btn" id="pip">PiP</button>
-    <button class="btn" id="full">⛶ ملء الشاشة</button>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <script>
 const links = {{links}};
-let hls = null;
-let currentTag = null;
+let hls = null, curTag = null, hideTimer = null, pausedByUser = true;
 const video = document.getElementById('player');
+const box = document.getElementById('box');
 const err = document.getElementById('err');
 const spin = document.getElementById('spin');
-const qinfo = document.getElementById('qinfo');
+const ctr = document.getElementById('controls');
+const big = document.getElementById('bigplay');
+const hint = document.getElementById('hint');
+const bar = document.getElementById('bar');
+const tcur = document.getElementById('tcur');
+const tdur = document.getElementById('tdur');
+const qcur = document.getElementById('qcur');
 
-function showSpin(on) { spin.style.display = on ? 'block' : 'none'; }
+function fmt(s) { if (!isFinite(s)) return '0:00'; s = Math.floor(s); const m = Math.floor(s/60), sec = s%60; return m + ':' + String(sec).padStart(2,'0'); }
+function showHint(t) { hint.textContent = t; hint.classList.add('show'); clearTimeout(showHint._t); showHint._t = setTimeout(() => hint.classList.remove('show'), 1600); }
+function showControls() {
+  ctr.classList.add('visible'); big.classList.add('hidden');
+  clearTimeout(hideTimer);
+  if (!video.paused) hideTimer = setTimeout(() => ctr.classList.remove('visible'), 2800);
+}
+function showBig() {
+  if (video.paused) { big.textContent = '▶'; big.classList.remove('hidden'); }
+  else big.classList.add('hidden');
+}
+
+function toggleMenu(menu, btn) {
+  document.querySelectorAll('.menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
+}
+document.querySelectorAll('.menu-wrap').forEach(w => {
+  w.querySelector('.ic').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleMenu(w.querySelector('.menu'));
+  });
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.menu-wrap')) document.querySelectorAll('.menu.open').forEach(m => m.classList.remove('open'));
+});
 
 function load(src) {
   showSpin(true);
   if (hls) { hls.destroy(); hls = null; }
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  big.classList.remove('hidden');
+  pausedByUser = true;
   if (Hls.isSupported()) {
     hls = new Hls({ enableWorker: true, maxBufferLength: 30, maxMaxBufferLength: 60, startLevel: -1 });
     hls.loadSource(src);
     hls.attachMedia(video);
     hls.on(Hls.Events.ERROR, (evt, data) => {
       if (data.fatal) {
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          showSpin(true); hls.startLoad();
-        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          hls.recoverMediaError();
-        }
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { showSpin(true); hls.startLoad(); }
+        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
       }
     });
     hls.on(Hls.Events.LEVEL_SWITCHED, (e, d) => {
       const lv = hls.levels[d.level];
-      if (lv) qinfo.textContent = 'الجودة الحالية: ' + (lv.height ? lv.height + 'p' : 'auto') + (currentTag ? ' (' + currentTag + ')' : '');
+      if (lv && lv.height) qcur.textContent = lv.height + 'p';
     });
-    hls.on(Hls.Events.MANIFEST_PARSED, () => showSpin(false));
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      showSpin(false);
+      tdur.textContent = fmt(hls.levels[hls.currentLevel] ? hls.levels[hls.currentLevel].details ? hls.levels[hls.currentLevel].details.totalduration : 0 : 0);
+    });
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = src;
-    showSpin(false);
+    video.src = src; showSpin(false);
   } else {
-    err.style.display = 'block';
-    err.textContent = 'المتصفح لا يدعم HLS';
-    showSpin(false);
+    err.style.display = 'block'; err.textContent = 'المتصفح لا يدعم HLS'; showSpin(false);
   }
-  video.play().catch(() => {});
 }
 
-video.addEventListener('waiting', () => showSpin(true));
-video.addEventListener('playing', () => showSpin(false));
-video.addEventListener('canplay', () => showSpin(false));
-video.addEventListener('error', () => showSpin(false));
+function togglePlay() {
+  if (video.paused) {
+    pausedByUser = false;
+    video.play().catch(() => {});
+  } else {
+    pausedByUser = true;
+    video.pause();
+  }
+}
+big.addEventListener('click', togglePlay);
+document.getElementById('play').addEventListener('click', togglePlay);
+box.addEventListener('click', (e) => {
+  if (e.target.closest('.menu-wrap') || e.target.closest('#bar') || e.target === big) return;
+  togglePlay();
+});
+box.addEventListener('dblclick', () => { fullscreen(); });
 
-const qs = document.getElementById('quals');
+video.addEventListener('playing', () => { showSpin(false); showControls(); });
+video.addEventListener('waiting', () => { if (!video.paused) showSpin(true); });
+video.addEventListener('pause', () => showBig());
+video.addEventListener('play', () => { showBig(); showControls(); });
+video.addEventListener('timeupdate', () => {
+  if (video.duration) bar.value = (video.currentTime / video.duration) * 100;
+  tcur.textContent = fmt(video.currentTime);
+});
+video.addEventListener('loadedmetadata', () => { tdur.textContent = fmt(video.duration); });
+
+bar.addEventListener('input', () => {
+  if (video.duration) video.currentTime = (bar.value / 100) * video.duration;
+});
+
+const qmenu = document.getElementById('qmenu');
 for (const l of links) {
   const b = document.createElement('button');
-  b.className = 'btn';
+  b.className = 'mi';
   b.dataset.q = l.tag;
-  b.textContent = l.label;
+  b.innerHTML = l.label + '<span class="chk"></span>';
   b.addEventListener('click', () => {
-    currentTag = l.tag;
-    document.querySelectorAll('#quals .btn').forEach(q => q.classList.toggle('active', q.dataset.q === l.tag));
+    curTag = l.tag;
+    qmenu.querySelectorAll('.mi').forEach(m => m.classList.toggle('active', m.dataset.q === l.tag));
+    document.querySelectorAll('#qmenu .chk').forEach(c => c.textContent = '');
+    b.querySelector('.chk').textContent = '✓';
+    qmenu.classList.remove('open');
+    showHint('جودة: ' + l.label);
     load(l.url);
   });
-  qs.appendChild(b);
+  qmenu.appendChild(b);
 }
+qmenu.firstChild && qmenu.firstChild.classList.add('active');
+qmenu.firstChild && (qmenu.firstChild.querySelector('.chk').textContent = '✓');
 
-document.querySelectorAll('[data-speed]').forEach(b => {
+const smenu = document.getElementById('smenu');
+for (const sp of [0.5, 1, 1.5, 2]) {
+  const b = document.createElement('button');
+  b.className = 'mi';
+  b.dataset.sp = sp;
+  b.innerHTML = sp + 'x<span class="chk"></span>';
+  if (sp === 1) { b.classList.add('active'); b.querySelector('.chk').textContent = '✓'; }
   b.addEventListener('click', () => {
-    document.querySelectorAll('[data-speed]').forEach(x => x.classList.toggle('active', x === b));
-    video.playbackRate = parseFloat(b.dataset.speed);
+    video.playbackRate = sp;
+    smenu.querySelectorAll('.mi').forEach(m => m.classList.toggle('active', m.dataset.sp == sp));
+    document.querySelectorAll('#smenu .chk').forEach(c => c.textContent = '');
+    b.querySelector('.chk').textContent = '✓';
+    smenu.classList.remove('open');
+    showHint('السرعة: ' + sp + 'x');
   });
-});
+  smenu.appendChild(b);
+}
 
 document.getElementById('pip').addEventListener('click', async () => {
   try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); } catch (e) {}
 });
-
-document.getElementById('full').addEventListener('click', () => {
-  const box = document.querySelector('.player-box');
+function fullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();
   else box.requestFullscreen().catch(() => {});
-});
+}
+document.getElementById('full').addEventListener('click', fullscreen);
+
+box.addEventListener('mousemove', showControls);
+box.addEventListener('touchstart', () => showControls(), { passive: true });
+document.addEventListener('fullscreenchange', () => { if (document.fullscreenElement) showControls(); });
 
 const first = links.find(x => x.tag === 'master') || links[0];
-document.querySelectorAll('#quals .btn').forEach(q => q.classList.toggle('active', q.dataset.q === first.tag));
-currentTag = first.tag;
+curTag = first.tag;
 load(first.url);
 </script>
 </body>

@@ -1,0 +1,9 @@
+{
+  "name": "7esen-hd-vercel",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsdom": "^29.1.1"
+  }
+}

@@ -840,9 +840,25 @@ async function extractEgydeadServer(title) {
   if (!sr.ok) throw new Error("egydead search " + sr.status);
   const body = await sr.text();
   const hrefs = [...body.matchAll(/<a[^>]+href="(https?:\/\/[^"]+?)"/g)].map((m) => m[1]);
-  const pageUrl = hrefs.find((u) => /\.egydead\.live$/.test(new URL(u).hostname) && !/\/wp-|\/category\/|\/tag\/|\/label\/|\/assembly\/|\.(css|js|jpg|jpeg|png|webp|gif|svg|woff2?)$/.test(u) && /\/[a-z0-9\-]+-(\d{4})/.test(u));
-  if (!pageUrl) throw new Error("لا نتيجة");
-  const got = await extractFromEgydead(pageUrl);
+  const pageUrls = hrefs.filter((u) => {
+    try {
+      const d = decodeURIComponent(u);
+      return /\.egydead\.live$/.test(new URL(u).hostname) && !/\/serie\/|\/season\/|\/episode\/|\/wp-|\/category\/|\/tag\/|\/label\/|\/assembly\/|\.(css|js|jpg|jpeg|png|webp|gif|svg|woff2?)$/i.test(d) && /-(\d{4})/.test(d);
+    } catch {
+      return false;
+    }
+  });
+  if (!pageUrls.length) throw new Error("لا نتيجة");
+  let got = null;
+  for (const u of pageUrls) {
+    try {
+      const g = await extractFromEgydead(u);
+      if (g) { got = g; break; }
+    } catch {
+      /* jرب الصفحة التالية */
+    }
+  }
+  if (!got) throw new Error("لا سيرفرات في الصفحة");
   const hd = { "User-Agent": UA, Referer: got.embed, Origin: new URL(got.embed).origin };
   const mr = await fetch(got.master, {
     headers: { "User-Agent": UA, Referer: got.embed, Origin: new URL(got.embed).origin },

@@ -1,6 +1,6 @@
 const express = require("express");
 const { makeToken, resolveToken, resolveTokenFull } = require("../lib/tokens");
-const { extractFromPage, resolvePlayerM3u8 } = require("../lib/extractor");
+const { extractFromPage, resolvePlayerM3u8, extractFromEgydead } = require("../lib/extractor");
 
 const CODE = process.env.FHD_CODE || "";
 const API = process.env.FHD_API || "https://fashd.com/faselhd15/public/api/";
@@ -14,6 +14,7 @@ const BACKUPS = (process.env.FHD_BACKUPS || [
   "https://3echk.com/mortadha/public/api/"
 ].join(",")).split(",").map((s) => s.trim()).filter(Boolean);
 const SITE = process.env.FHD_SITE || "https://web8818x.faselhdx.life";
+const EGYDEAD = process.env.EGYDEAD_SITE || "https://tv10.egydead.live";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 const HEADERS = { "User-Agent": UA, "Accept-Language": "ar,en;q=0.9" };
 const CDN_HEADERS = { ...HEADERS, Referer: SITE + "/", Origin: SITE };
@@ -821,23 +822,89 @@ async function extractApiLinks(id) {
   return { servers, errs };
 }
 
-async function getMovieLinks(movieId, title) {
-  try {
-    return await extractApiLinks(movieId);
-  } catch (apiErr) {
-    try {
-      const siteLinks = await siteSearch(title);
-      const pageUrl = siteLinks[0] || SITE + "/?p=" + movieId;
-      const m3u8s = await extractFromPage(pageUrl);
-      const links = [];
-      for (const l of buildLinks(m3u8s)) {
-        const tok = l.url.split("/").pop();
-        if (await verifyM3u8(resolveToken(tok))) links.push(l);
-      }
-      return { servers: [{ host: serverKey(SITE), name: serverName(SITE), links }], errs: [String(apiErr.message || apiErr)] };
-    } catch (e) {
-      throw new Error(String(apiErr.message || apiErr) + " | site: " + String(e.message || e));
+function egTagOfWidth(w) {
+  if (w >= 1880) return { tag: "1080", label: "1080p" };
+  if (w >= 1200) return { tag: "720", label: "720p" };
+  if (w >= 800) return { tag: "480", label: "480p" };
+  if (w >= 600) return { tag: "360", label: "360p" };
+  return { tag: "360", label: "360p" };
+}
+
+async function extractEgydeadServer(title) {
+  const q = encodeURIComponent(String(title || "").trim());
+  if (!q) throw new Error("بلا عنوان");
+  const sr = await fetch(EGYDEAD + "/?s=" + q, {
+    headers: { "User-Agent": UA, Referer: EGYDEAD + "/" },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!sr.ok) throw new Error("egydead search " + sr.status);
+  const body = await sr.text();
+  const hrefs = [...body.matchAll(/<a[^>]+href="(https?:\/\/[^"]+?)"/g)].map((m) => m[1]);
+  const pageUrl = hrefs.find((u) => /\.egydead\.live$/.test(new URL(u).hostname) && !/\/wp-|\/category\/|\/tag\/|\/label\/|\/assembly\/|\.(css|js|jpg|jpeg|png|webp|gif|svg|woff2?)$/.test(u) && /\/[a-z0-9\-]+-(\d{4})/.test(u));
+  if (!pageUrl) throw new Error("لا نتيجة");
+  const got = await extractFromEgydead(pageUrl);
+  const hd = { "User-Agent": UA, Referer: got.embed, Origin: new URL(got.embed).origin };
+  const mr = await fetch(got.master, {
+    headers: { "User-Agent": UA, Referer: got.embed, Origin: new URL(got.embed).origin },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!mr.ok) throw new Error("master " + mr.status);
+  const text = await mr.text();
+  const variants = [];
+  let cur = 0;
+  for (const line of text.split(/\r?\n/)) {
+    if (line.startsWith("#EXT-X-STREAM-INF")) {
+      const wm = line.match(/RESOLUTION=(\d+)x(\d+)/);
+      cur = wm ? parseInt(wm[1], 10) : 0;
+    } else if (line.trim() && !line.startsWith("#") && cur) {
+      variants.push({ url: new URL(line.trim(), got.master).toString(), w: cur });
+      cur = 0;
     }
+  }
+  if (variants.length) {
+    variants.sort((a, b) => b.w - a.w);
+    const entries = [];
+    const seen = new Set();
+    for (const v of variants) {
+      const { tag, label } = egTagOfWidth(v.w);
+      if (seen.has(tag)) continue;
+      seen.add(tag);
+      entries.push({ url: "/s/" + makeToken(v.url, hd), tag, label });
+      if (entries.length >= 4) break;
+    }
+    return { host: "egydead", name: "ايجي ديد", links: entries };
+  }
+  return { host: "egydead", name: "ايجي ديد", links: [{ url: "/s/" + makeToken(got.master, hd), tag: "auto", label: "تلقائي" }] };
+}
+
+async function getMovieLinks(movieId, title) {
+  const apiP = extractApiLinks(movieId);
+  const egP = Promise.resolve()
+    .then(() => extractEgydeadServer(title))
+    .catch((e) => ({ err: String((e && e.message) || e) }));
+  const [apiRes, egRes] = await Promise.allSettled([apiP, egP]);
+  const egVal = egRes.status === "fulfilled" ? egRes.value : { err: String((egRes.reason && egRes.reason.message) || egRes.reason) };
+  if (apiRes.status === "fulfilled") {
+    const servers = apiRes.value.servers;
+    const errs = apiRes.value.errs;
+    if (egVal && !egVal.err) servers.push(egVal);
+    else if (egVal) errs.push("ايجي ديد: " + egVal.err);
+    return { servers, errs };
+  }
+  const apiErr = String((apiRes.reason && apiRes.reason.message) || apiRes.reason);
+  if (egVal && !egVal.err) return { servers: [egVal], errs: ["API: " + apiErr] };
+  try {
+    const siteLinks = await siteSearch(title);
+    const pageUrl = siteLinks[0] || SITE + "/?p=" + movieId;
+    const m3u8s = await extractFromPage(pageUrl);
+    const links = [];
+    for (const l of buildLinks(m3u8s)) {
+      const tok = l.url.split("/").pop();
+      if (await verifyM3u8(resolveToken(tok))) links.push(l);
+    }
+    return { servers: [{ host: serverKey(SITE), name: serverName(SITE), links }], errs: ["API: " + apiErr] };
+  } catch (e) {
+    throw new Error("API: " + apiErr + " | site: " + String(e.message || e));
   }
 }
 

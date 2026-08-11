@@ -1050,8 +1050,7 @@ app.get("/s/:token", async (req, res) => {
     const text = body.toString("utf8");
     const lines = text.split(/\r?\n/).map((line) => {
       if (line.startsWith("#") || !line.trim()) return line;
-      const seg = new URL(line.trim(), r.url).toString();
-      return "/s/" + makeToken(seg, hdrs);
+      return new URL(line.trim(), r.url).toString();
     });
     res.set("Content-Type", "application/vnd.apple.mpegurl");
     res.set("Access-Control-Allow-Origin", "*");

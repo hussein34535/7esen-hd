@@ -903,8 +903,11 @@ async function getMovieLinks(movieId, title) {
   if (apiRes.status === "fulfilled") {
     const servers = apiRes.value.servers;
     const errs = apiRes.value.errs;
-    if (egVal && !egVal.err) servers.unshift(egVal);
-    else if (egVal) errs.push("ايجي ديد: " + egVal.err);
+    if (egVal && !egVal.err) {
+      const mi = servers.findIndex((s) => s.host === "merged");
+      if (mi >= 0) servers.splice(mi + 1, 0, egVal);
+      else servers.unshift(egVal);
+    } else if (egVal) errs.push("ايجي ديد: " + egVal.err);
     return { servers, errs };
   }
   const apiErr = String((apiRes.reason && apiRes.reason.message) || apiRes.reason);
@@ -979,8 +982,8 @@ async function linksHandler(movieId, title) {
   const merged = mergeServers(got.servers);
   const boxServers = [];
   const eg = got.servers.find((s) => s.host === "egydead");
-  if (eg) boxServers.push(eg);
   if (merged) boxServers.push(merged);
+  if (eg) boxServers.push(eg);
   const box = { ts: Date.now(), servers: boxServers, errs: got.errs || [] };
   cache.set(movieId, box);
   return box;
